@@ -1,5 +1,10 @@
 name: CI
 
+# Scope: typecheck + JS build only. Native module compile (winax / node-gyp)
+# is intentionally skipped — see ROADMAP.md "CI narrowed to skip native module
+# compile" for the full reasoning. Native rebuild happens at packaging time
+# via electron-builder, not on every PR.
+
 on:
   pull_request:
     branches: [main]
@@ -31,22 +36,12 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # node-gyp (used by winax) imports distutils, which was removed from
-      # Python 3.12. windows-latest ships 3.12 by default — pin to 3.11 so
-      # native module builds work.
-      - name: Setup Python 3.11 for node-gyp
+      - name: Install dependencies (skip native builds)
         if: steps.scaffold.outputs.ready == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        if: steps.scaffold.outputs.ready == 'true'
-        run: npm ci
-
-      - name: Rebuild native modules for Electron
-        if: steps.scaffold.outputs.ready == 'true'
-        run: npx --no-install electron-rebuild || npx electron-rebuild
+        # --ignore-scripts skips winax's node-gyp rebuild and
+        # electron-builder's install-app-deps. We only verify JS-level
+        # correctness in CI; native compile happens at packaging time.
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         if: steps.scaffold.outputs.ready == 'true'
