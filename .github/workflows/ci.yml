@@ -31,6 +31,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # node-gyp (used by winax) imports distutils, which was removed from
+      # Python 3.12. windows-latest ships 3.12 by default — pin to 3.11 so
+      # native module builds work.
+      - name: Setup Python 3.11 for node-gyp
+        if: steps.scaffold.outputs.ready == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         if: steps.scaffold.outputs.ready == 'true'
         run: npm ci
