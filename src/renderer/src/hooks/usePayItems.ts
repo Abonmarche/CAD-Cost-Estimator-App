@@ -29,6 +29,9 @@ export function usePayItems() {
       totalCost: null,
       flagMessage: null,
       flagOptions: null,
+      ...(preset.fields.includes('autoDiameter')
+        ? { autoDiameterFromWidth: true }
+        : {}),
     };
     setItems((prev) => [...prev, newItem]);
   }, []);
@@ -52,12 +55,15 @@ export function usePayItems() {
             patch.objectType !== undefined ||
             patch.material !== undefined ||
             patch.diameter !== undefined ||
-            patch.thickness !== undefined
+            patch.thickness !== undefined ||
+            patch.autoDiameterFromWidth !== undefined
           ) {
             // Only reset if it wasn't already in a terminal state; resolution
             // updates come through this path too, so guard on explicit fields.
             const resetTriggered =
-              patch.layer !== undefined || patch.objectType !== undefined;
+              patch.layer !== undefined ||
+              patch.objectType !== undefined ||
+              patch.autoDiameterFromWidth !== undefined;
             if (resetTriggered && merged.status === 'complete') {
               merged.status = 'pending';
               merged.quantity = null;

@@ -21,6 +21,12 @@ export interface FlagContext {
   entities: EntityRecord[];
   /** Layer names that also have entities matching the object type. */
   siblingLayers?: string[];
+  /** Polyline global-width analysis when auto-diameter is enabled. */
+  widthAnalysis?: {
+    inches: number;
+    dominantFraction: number;
+    widthsFt: number[];
+  } | null;
 }
 
 /**
@@ -34,6 +40,7 @@ export function detectIssues(ctx: FlagContext): MeasurementIssue | null {
     checkSiblingLayers,
     checkUnexpectedTypes,
     checkMixedClosed,
+    checkAutoDiameterAmbiguous,
     checkShortSegments,
   ];
   for (const check of checks) {
@@ -131,6 +138,58 @@ function checkMixedClosed(ctx: FlagContext): MeasurementIssue | null {
     };
   }
   return null;
+}
+
+function checkAutoDiameterAmbiguous(
+  ctx: FlagContext,
+): MeasurementIssue | null {
+  if (!ctx.item.autoDiameterFromWidth) return null;
+  if (ctx.item.objectType !== 'polyline') return null;
+
+  const polylineCount = ctx.entities.filter((e) =>
+    e.type.includes('Polyline'),
+  ).length;
+  if (polylineCount === 0) return null;
+
+  // No recorded widths (or all zero) — we can't infer a diameter at all.
+  if (!ctx.widthAnalysis) {
+    return {
+      type: 'ambiguous_diameter',
+      message:
+        'No polyline widths are set on this layer, so I can\'t infer a pipe diameter. Uncheck "Auto-diameter from polyline width" and enter one manually, or assign global widths in AutoCAD.',
+      suggestedOptions: ['Set quantity manually', 'Skip this item'],
+    };
+  }
+
+  // Multiple widths with no clear winner — user should pick.
+  if (ctx.widthAnalysis.dominantFraction < 0.7) {
+    const distinct = Array.from(
+      new Set(
+        ctx.widthAnalysis.widthsFt.map((w) =>
+          snapStandardDiameter(w * 12),
+        ),
+      ),
+    ).sort((a, b) => a - b);
+    const widthList = distinct.map((d) => `${d}"`).join(', ');
+    return {
+      type: 'ambiguous_diameter',
+      message: `Multiple pipe diameters detected on this layer (${widthList}). Pick one to use for pricing, or set the quantity manually.`,
+      suggestedOptions: [
+        ...distinct.map((d) => `Use ${d}"`),
+        'Set quantity manually',
+      ],
+      metadata: { distinctDiameters: distinct },
+    };
+  }
+  return null;
+}
+
+/** Standard pipe sizes (inches). Kept local to avoid a cross-module import. */
+const STANDARD_PIPE_IN = [4, 6, 8, 10, 12, 16, 20, 24];
+function snapStandardDiameter(rawInches: number): number {
+  return STANDARD_PIPE_IN.reduce((best, s) =>
+    Math.abs(s - rawInches) < Math.abs(best - rawInches) ? s : best,
+  );
 }
 
 function checkShortSegments(ctx: FlagContext): MeasurementIssue | null {

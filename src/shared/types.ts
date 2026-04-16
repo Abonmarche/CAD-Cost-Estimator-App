@@ -22,6 +22,7 @@ export type PayItemStatus =
 
 /** Fields that can be conditionally rendered on a pay item row. */
 export type PayItemField =
+  | 'autoDiameter'
   | 'diameter'
   | 'material'
   | 'thickness'
@@ -56,6 +57,13 @@ export interface PayItem extends PayItemPreset {
   size?: string;
   depth?: string;
   course?: string;
+  /**
+   * When true, infer diameter from the polyline's ConstantWidth (global
+   * width) property during measurement instead of using the `diameter`
+   * field. Civil drafting often encodes pipe diameter as a fraction of one
+   * foot (0.5 ft = 6", 1.0 ft = 12"). Defaults to `true` for water main.
+   */
+  autoDiameterFromWidth?: boolean;
 
   // Measurement results
   quantity: number | null;
@@ -136,7 +144,8 @@ export interface MeasurementIssue {
     | 'overlap'
     | 'artifacts'
     | 'mixed_closed'
-    | 'zero_quantity';
+    | 'zero_quantity'
+    | 'ambiguous_diameter';
   message: string;
   suggestedOptions: string[];
   metadata?: Record<string, unknown>;
@@ -148,6 +157,8 @@ export interface MeasurementResult {
   unit?: string;
   details?: EntitySummary;
   issues?: MeasurementIssue[];
+  /** Diameter auto-detected from polyline global width (e.g. `'8"'`). */
+  detectedDiameter?: string;
   /** Present when success=false and no issues list applies. */
   errorMessage?: string;
 }

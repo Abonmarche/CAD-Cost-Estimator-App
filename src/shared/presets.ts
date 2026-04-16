@@ -19,7 +19,7 @@ export const PRESETS: PresetCategory[] = [
     key: 'utilities',
     label: 'Utilities',
     items: [
-      { name: 'Water Main', objectType: 'polyline', measurement: 'linear', defaultLayer: 'W-MAIN', icon: '💧', fields: ['diameter', 'material'] },
+      { name: 'Water Main', objectType: 'polyline', measurement: 'linear', defaultLayer: 'W-MAIN', icon: '💧', fields: ['autoDiameter', 'diameter', 'material'] },
       { name: 'Sanitary Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'SS-PIPE', icon: '🟤', fields: ['diameter', 'material'] },
       { name: 'Storm Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'STM-PIPE', icon: '🌧', fields: ['diameter', 'material'] },
       { name: 'Water Service', objectType: 'polyline', measurement: 'linear', defaultLayer: 'W-SERV', icon: '💧', fields: ['diameter', 'material'] },

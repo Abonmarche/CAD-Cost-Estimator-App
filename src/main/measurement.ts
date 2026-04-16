@@ -98,8 +98,24 @@ function measureCore(item: PayItem): MeasurementResult {
       ? findSiblingLayers(item, dxfTypes, aliases)
       : [];
 
+  // Auto-detect pipe diameter from polyline global width where enabled.
+  const widthAnalysis =
+    item.autoDiameterFromWidth && item.objectType === 'polyline'
+      ? analyzeWidths(summary.polyline_width_breakdown)
+      : null;
+  const detectedDiameter =
+    widthAnalysis && widthAnalysis.dominantFraction >= 0.7
+      ? `${widthAnalysis.inches}"`
+      : undefined;
+
   const quantity = computeQuantity(item, summary);
-  const issue = detectIssues({ item, summary, entities, siblingLayers });
+  const issue = detectIssues({
+    item,
+    summary,
+    entities,
+    siblingLayers,
+    widthAnalysis,
+  });
 
   if (issue) {
     return {
@@ -108,6 +124,7 @@ function measureCore(item: PayItem): MeasurementResult {
       unit: MEASUREMENT_UNITS[item.measurement],
       details: summary,
       issues: [issue],
+      detectedDiameter,
     };
   }
 
@@ -124,6 +141,7 @@ function measureCore(item: PayItem): MeasurementResult {
           suggestedOptions: ['Set quantity manually', 'Skip this item'],
         },
       ],
+      detectedDiameter,
     };
   }
 
@@ -132,6 +150,45 @@ function measureCore(item: PayItem): MeasurementResult {
     quantity,
     unit: MEASUREMENT_UNITS[item.measurement],
     details: summary,
+    detectedDiameter,
+  };
+}
+
+/** Standard nominal pipe sizes we snap detected widths to. */
+const STANDARD_DIAMETERS_IN = [4, 6, 8, 10, 12, 16, 20, 24];
+
+export interface WidthAnalysis {
+  /** Dominant width snapped to the nearest standard diameter, in inches. */
+  inches: number;
+  /** Fraction of polylines with non-zero widths that share the dominant bucket. */
+  dominantFraction: number;
+  /** Every distinct non-zero width observed, in feet. */
+  widthsFt: number[];
+}
+
+/**
+ * Inspect the polyline_width_breakdown bucket produced by
+ * `getEntitiesOnLayer` and decide which pipe diameter it represents.
+ * Returns null when no polylines have a non-zero ConstantWidth.
+ */
+export function analyzeWidths(
+  breakdown: Record<string, { count: number; total_length: number }> | undefined,
+): WidthAnalysis | null {
+  if (!breakdown) return null;
+  const entries = Object.entries(breakdown)
+    .map(([w, g]) => ({ widthFt: parseFloat(w), count: g.count }))
+    .filter((e) => Number.isFinite(e.widthFt) && e.widthFt > 0);
+  if (entries.length === 0) return null;
+  const total = entries.reduce((s, e) => s + e.count, 0);
+  const dominant = entries.reduce((a, b) => (b.count > a.count ? b : a));
+  const rawInches = dominant.widthFt * 12;
+  const snapped = STANDARD_DIAMETERS_IN.reduce((best, s) =>
+    Math.abs(s - rawInches) < Math.abs(best - rawInches) ? s : best,
+  );
+  return {
+    inches: snapped,
+    dominantFraction: dominant.count / total,
+    widthsFt: entries.map((e) => e.widthFt),
   };
 }
 
@@ -145,6 +202,9 @@ function toUpdate(
       patch: { status: 'error', errorMessage: result.errorMessage },
     };
   }
+  const diameterPatch = result.detectedDiameter
+    ? { diameter: result.detectedDiameter }
+    : {};
   if (result.issues && result.issues.length > 0) {
     const issue = result.issues[0];
     return {
@@ -154,6 +214,7 @@ function toUpdate(
         quantity: result.quantity ?? null,
         flagMessage: issue.message,
         flagOptions: issue.suggestedOptions,
+        ...diameterPatch,
       },
     };
   }
@@ -164,6 +225,7 @@ function toUpdate(
       quantity: result.quantity ?? null,
       flagMessage: null,
       flagOptions: null,
+      ...diameterPatch,
     },
   };
 }
