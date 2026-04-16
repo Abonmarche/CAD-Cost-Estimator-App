@@ -1,0 +1,100 @@
+:root {
+  --bg-deep: #0f1117;
+  --bg-surface: #13151b;
+  --bg-card: #1a1c23;
+  --bg-card-hover: #252830;
+  --bg-input: #12141a;
+  --border-subtle: #1e2028;
+  --border-card: #2a2d35;
+  --border-card-hover: #3d414b;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #c8cdd5;
+  --text-muted: #94a3b8;
+  --text-dim: #6b7280;
+  --text-faint: #4b5060;
+
+  --accent-blue: #3b82f6;
+  --accent-blue-strong: #2563eb;
+  --accent-green: #22c55e;
+  --accent-amber: #f59e0b;
+  --accent-red: #ef4444;
+
+  --abonmarche-navy: #0a2240;
+  --abonmarche-red: #c40d3c;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Custom scrollbar that blends with the dark theme */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2d35;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d414b;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Fade-in animation for newly inserted pay item rows */
+@keyframes rowFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.row-enter {
+  animation: rowFadeIn 160ms ease-out;
+}
