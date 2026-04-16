@@ -140,9 +140,16 @@ function buildResolutionPrompt(
   userInput: string,
 ): string {
   const desc = buildPayItemDescription(item);
+  const allLayers = [item.layer, ...(item.extraLayers ?? [])]
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const layerLine =
+    allLayers.length > 1
+      ? `Layers: ${allLayers.join(', ')}`
+      : `Layer: ${item.layer}`;
   const lines = [
     `Pay item: ${desc}`,
-    `Layer: ${item.layer}`,
+    layerLine,
     `Object type: ${item.objectType}`,
     `Measurement: ${item.measurement}`,
     item.quantity !== null ? `Current measurement: ${item.quantity}` : null,

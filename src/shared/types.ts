@@ -47,6 +47,13 @@ export interface PayItem extends PayItemPreset {
   /** Stable id so React keys survive reorders/renames. */
   id: string;
   layer: string;
+  /**
+   * Optional additional layers to pull geometry from. When present, the
+   * measurement sums entities across `[layer, ...extraLayers]`. Lets a
+   * single pay item combine quantities from layers the drafter split
+   * (e.g. `W-MAIN-EX` + `W-MAIN-PROP`). Empty strings are ignored.
+   */
+  extraLayers?: string[];
   status: PayItemStatus;
 
   // User-entered attributes (any subset of the preset's `fields` may be filled)

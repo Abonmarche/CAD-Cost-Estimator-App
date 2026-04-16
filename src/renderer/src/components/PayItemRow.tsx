@@ -257,12 +257,49 @@ function RowFields({
       >
         <div>
           <label style={labelStyle}>Layer</label>
-          <input
-            value={item.layer}
-            onChange={(e) => onUpdate(item.id, { layer: e.target.value })}
-            placeholder="e.g. W-MAIN"
-            style={inputStyle}
-          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              value={item.layer}
+              onChange={(e) => onUpdate(item.id, { layer: e.target.value })}
+              placeholder="e.g. W-MAIN"
+              style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+            />
+            <select
+              title="Number of layers to combine"
+              value={1 + (item.extraLayers?.length ?? 0)}
+              onChange={(e) => {
+                const count = Number(e.target.value);
+                const current = item.extraLayers ?? [];
+                const extras = count - 1;
+                let next: string[];
+                if (extras <= 0) {
+                  next = [];
+                } else if (extras > current.length) {
+                  next = [
+                    ...current,
+                    ...Array(extras - current.length).fill(''),
+                  ];
+                } else {
+                  next = current.slice(0, extras);
+                }
+                onUpdate(item.id, { extraLayers: next });
+              }}
+              style={{
+                ...inputStyle,
+                width: 56,
+                flex: '0 0 auto',
+                cursor: 'pointer',
+                padding: '6px 4px',
+                textAlign: 'center',
+              }}
+            >
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Object Type</label>
@@ -299,6 +336,33 @@ function RowFields({
           </div>
         </div>
       </div>
+
+      {item.extraLayers && item.extraLayers.length > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+            gap: 8,
+            marginBottom: 8,
+          }}
+        >
+          {item.extraLayers.map((name, i) => (
+            <div key={i}>
+              <label style={labelStyle}>Layer {i + 2}</label>
+              <input
+                value={name}
+                onChange={(e) => {
+                  const next = [...(item.extraLayers ?? [])];
+                  next[i] = e.target.value;
+                  onUpdate(item.id, { extraLayers: next });
+                }}
+                placeholder={i === 0 ? 'e.g. W-MAIN-EX' : ''}
+                style={inputStyle}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
       {item.fields.includes('autoDiameter') && (
         <div
@@ -348,6 +412,7 @@ function RowFields({
             )}
         </div>
       )}
+
       {item.fields.length > 0 && (
         <div
           style={{
