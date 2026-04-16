@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    name: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect scaffold
+        id: scaffold
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json yet — skipping install/typecheck/build. This job will run real checks once the Electron scaffold lands."
+          fi
+
+      - name: Setup Node
+        if: steps.scaffold.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.scaffold.outputs.ready == 'true'
+        run: npm ci
+
+      - name: Rebuild native modules for Electron
+        if: steps.scaffold.outputs.ready == 'true'
+        run: npx --no-install electron-rebuild || npx electron-rebuild
+
+      - name: Typecheck
+        if: steps.scaffold.outputs.ready == 'true'
+        run: npx tsc --noEmit
+
+      - name: Build
+        if: steps.scaffold.outputs.ready == 'true'
+        run: npm run build
