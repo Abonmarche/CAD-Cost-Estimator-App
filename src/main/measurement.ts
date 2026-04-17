@@ -10,6 +10,8 @@
  */
 
 import type {
+  EntityRecord,
+  EntitySummary,
   MeasurementResult,
   PayItem,
   PayItemUpdate,
@@ -21,7 +23,10 @@ import {
   SQ_FT_PER_SY,
 } from '@shared/constants';
 
-import { getEntitiesOnLayer } from './tools/autocad/entities';
+import {
+  getEntitiesOnLayer,
+  type GetEntitiesResult,
+} from './tools/autocad/entities';
 import { countEntities } from './tools/autocad/selection';
 import { listLayerNames } from './tools/autocad/layers';
 import { detectIssues } from './flagging';
@@ -80,19 +85,32 @@ function measureCore(item: PayItem): MeasurementResult {
         ? false
         : undefined;
 
-  const { summary, entities } = getEntitiesOnLayer({
-    layer_name: item.layer,
-    dxf_types: dxfTypes,
-    object_name_filter: aliases,
-    closed_filter: closedFilter,
-  });
+  const layers = resolveLayers(item);
+  // An item with no usable layer still needs a measurement pass so flagging
+  // can fire — fall back to whatever string is in `item.layer`.
+  const targetLayers = layers.length > 0 ? layers : [item.layer];
+
+  const perLayer: { layer: string; result: GetEntitiesResult }[] = [];
+  for (const layerName of targetLayers) {
+    const result = getEntitiesOnLayer({
+      layer_name: layerName,
+      dxf_types: dxfTypes,
+      object_name_filter: aliases,
+      closed_filter: closedFilter,
+    });
+    perLayer.push({ layer: layerName, result });
+  }
+
+  const { summary, entities } = mergeGetEntitiesResults(perLayer, targetLayers);
+  // Names of layers (from the user's input) that returned zero entities.
+  const emptyLayers = perLayer
+    .filter(({ result }) => result.summary.total_entities === 0)
+    .map(({ layer }) => layer);
 
   // Sibling-layer discovery is expensive (14+ seconds on a 372-layer
   // drawing because every layer enumeration is a ~60ms COM round-trip).
-  // Only do it when we have reason to — i.e., when the user's layer
-  // returned zero entities. If we found entities on the user's chosen
-  // layer, trust the choice. The resolution chat can explore siblings
-  // on demand via the `list_layers` MCP tool.
+  // Only do it when the entire multi-layer selection returned nothing.
+  // If any of the user's layers had matches, trust the choice.
   const siblingLayers =
     summary.total_entities === 0
       ? findSiblingLayers(item, dxfTypes, aliases)
@@ -131,6 +149,7 @@ function measureCore(item: PayItem): MeasurementResult {
     entities,
     siblingLayers,
     autoDiameterWidthsMissing: noWidthsDetected,
+    emptyLayers,
   });
 
   if (issue) {
@@ -325,6 +344,91 @@ function computeQuantity(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Deduplicated, trimmed list of layers to query for a pay item. Combines
+ * the primary `layer` with any `extraLayers`, drops empty strings, and
+ * preserves order of first occurrence.
+ */
+export function resolveLayers(item: PayItem): string[] {
+  const all = [item.layer, ...(item.extraLayers ?? [])].map((s) =>
+    (s ?? '').trim(),
+  );
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of all) {
+    if (!name) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
+ * Merge per-layer `getEntitiesOnLayer` results into one combined summary +
+ * entities list. Numeric buckets are summed; the merged `summary.layer`
+ * field is a comma-joined string so downstream messages read naturally.
+ */
+function mergeGetEntitiesResults(
+  perLayer: { layer: string; result: GetEntitiesResult }[],
+  targetLayers: string[],
+): GetEntitiesResult {
+  if (perLayer.length === 1) {
+    // Fast path — no merging needed.
+    return perLayer[0].result;
+  }
+  const type_counts: Record<string, number> = {};
+  const total_lengths_by_type: Record<string, number> = {};
+  const total_areas_by_type: Record<string, number> = {};
+  const widthBreakdown: Record<string, { count: number; total_length: number }> =
+    {};
+  const entities: EntityRecord[] = [];
+  let totalEntities = 0;
+
+  for (const { result } of perLayer) {
+    totalEntities += result.summary.total_entities;
+    for (const e of result.entities) entities.push(e);
+    for (const [k, v] of Object.entries(result.summary.type_counts)) {
+      type_counts[k] = (type_counts[k] ?? 0) + v;
+    }
+    for (const [k, v] of Object.entries(
+      result.summary.total_lengths_by_type ?? {},
+    )) {
+      total_lengths_by_type[k] = (total_lengths_by_type[k] ?? 0) + v;
+    }
+    for (const [k, v] of Object.entries(
+      result.summary.total_areas_by_type ?? {},
+    )) {
+      total_areas_by_type[k] = (total_areas_by_type[k] ?? 0) + v;
+    }
+    for (const [k, g] of Object.entries(
+      result.summary.polyline_width_breakdown ?? {},
+    )) {
+      const existing = widthBreakdown[k] ?? { count: 0, total_length: 0 };
+      widthBreakdown[k] = {
+        count: existing.count + g.count,
+        total_length: existing.total_length + g.total_length,
+      };
+    }
+  }
+
+  const summary: EntitySummary = {
+    layer: targetLayers.join(', '),
+    total_entities: totalEntities,
+    type_counts,
+  };
+  if (Object.keys(total_lengths_by_type).length > 0) {
+    summary.total_lengths_by_type = total_lengths_by_type;
+  }
+  if (Object.keys(total_areas_by_type).length > 0) {
+    summary.total_areas_by_type = total_areas_by_type;
+  }
+  if (Object.keys(widthBreakdown).length > 0) {
+    summary.polyline_width_breakdown = widthBreakdown;
+  }
+  return { summary, entities };
 }
 
 /**

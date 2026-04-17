@@ -28,6 +28,13 @@ export interface FlagContext {
    * remaining auto-diameter ambiguity is widths missing entirely.
    */
   autoDiameterWidthsMissing?: boolean;
+  /**
+   * Names of user-supplied layers (from `item.layer` / `item.extraLayers`)
+   * that returned zero entities. When only some of a multi-layer item's
+   * layers are empty, we flag them individually without blocking the
+   * partial measurement.
+   */
+  emptyLayers?: string[];
 }
 
 /**
@@ -52,15 +59,44 @@ export function detectIssues(ctx: FlagContext): MeasurementIssue | null {
 }
 
 function checkNoEntities(ctx: FlagContext): MeasurementIssue | null {
+  const allLayers = [
+    ctx.item.layer,
+    ...(ctx.item.extraLayers ?? []),
+  ].filter((s) => s && s.trim());
+  // All layers came back empty — same severity as the single-layer case.
   if (ctx.summary.total_entities === 0) {
+    const quoted = allLayers.map((l) => `"${l}"`).join(', ');
+    const noun = allLayers.length > 1 ? 'layers' : 'layer';
     return {
       type: 'no_entities',
-      message: `No entities found on layer "${ctx.item.layer}". The layer name may be off or the geometry may live on a different layer.`,
+      message:
+        allLayers.length === 0
+          ? 'No layer specified for this item.'
+          : `No entities found on ${noun} ${quoted}. The name${allLayers.length > 1 ? 's' : ''} may be off or the geometry may live on a different layer.`,
       suggestedOptions: [
         'Search similar layer names',
         'Set quantity manually',
         'Skip this item',
       ],
+    };
+  }
+  // Partial empty: some layers had matches, others didn't. Flag the empty
+  // ones without blocking the partial measurement.
+  if (
+    ctx.emptyLayers &&
+    ctx.emptyLayers.length > 0 &&
+    allLayers.length > 1
+  ) {
+    const empties = ctx.emptyLayers.map((l) => `"${l}"`).join(', ');
+    return {
+      type: 'no_entities',
+      message: `No entities on ${empties}, but I did find matches on the other layer${allLayers.length - ctx.emptyLayers.length > 1 ? 's' : ''}. Keep it this way, or drop the empty layer${ctx.emptyLayers.length > 1 ? 's' : ''}?`,
+      suggestedOptions: [
+        'Keep as measured',
+        ...ctx.emptyLayers.map((l) => `Drop ${l}`),
+        'Set quantity manually',
+      ],
+      metadata: { emptyLayers: ctx.emptyLayers },
     };
   }
   return null;

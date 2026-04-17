@@ -52,6 +52,7 @@ export function usePayItems() {
           // Edits reset the measurement state so we can re-measure cleanly.
           if (
             patch.layer !== undefined ||
+            patch.extraLayers !== undefined ||
             patch.objectType !== undefined ||
             patch.material !== undefined ||
             patch.diameter !== undefined ||
@@ -62,6 +63,7 @@ export function usePayItems() {
             // updates come through this path too, so guard on explicit fields.
             const resetTriggered =
               patch.layer !== undefined ||
+              patch.extraLayers !== undefined ||
               patch.objectType !== undefined ||
               patch.autoDiameterFromWidth !== undefined;
             if (resetTriggered && merged.status === 'complete') {

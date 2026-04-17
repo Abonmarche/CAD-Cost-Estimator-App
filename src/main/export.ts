@@ -117,7 +117,11 @@ export async function exportEstimate(
     const qty = item.quantity ?? 0;
     const price = item.unitPrice ?? 0;
     const ext = qty * price;
+    const allLayers = [item.layer, ...(item.extraLayers ?? [])]
+      .map((s) => (s ?? '').trim())
+      .filter(Boolean);
     const notes = [
+      allLayers.length > 1 ? `Layers: ${allLayers.join(', ')}` : null,
       item.priceSource ? `Source: ${item.priceSource}` : null,
       item.resolutionNotes ?? null,
     ]
