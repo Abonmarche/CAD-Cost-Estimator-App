@@ -83,11 +83,25 @@ export function usePayItems() {
   }, []);
 
   const applyUpdate = useCallback((update: PayItemUpdate) => {
-    setItems((prev) =>
-      prev.map((item) =>
+    setItems((prev) => {
+      const patched = prev.map((item) =>
         item.id === update.id ? { ...item, ...update.patch } : item,
-      ),
-    );
+      );
+      if (update.spawn && update.spawn.length > 0) {
+        // Slot spawned items immediately after the primary so the user
+        // reads the auto-diameter split as one logical group.
+        const primaryIndex = patched.findIndex((i) => i.id === update.id);
+        if (primaryIndex === -1) {
+          return [...patched, ...update.spawn];
+        }
+        return [
+          ...patched.slice(0, primaryIndex + 1),
+          ...update.spawn,
+          ...patched.slice(primaryIndex + 1),
+        ];
+      }
+      return patched;
+    });
   }, []);
 
   /**

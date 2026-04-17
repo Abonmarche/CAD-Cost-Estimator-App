@@ -47,12 +47,30 @@ export function useEstimate(
         applyUpdate(u);
 
         // Kick off pricing for newly-complete items (skip flagged — user
-        // will resolve first).
+        // will resolve first). Merge the measurement patch into the item
+        // before pricing so the description reflects auto-detected fields
+        // like the inferred diameter.
         if (u.patch.status === 'complete' && u.patch.quantity !== null) {
           const item = pending.find((p) => p.id === u.id);
           if (item) {
             const qty = u.patch.quantity ?? 0;
-            void fetchPrice(item, qty).then((patch) => applyUpdate({ id: u.id, patch }));
+            const measured = { ...item, ...u.patch };
+            void fetchPrice(measured, qty).then((patch) =>
+              applyUpdate({ id: u.id, patch }),
+            );
+          }
+        }
+
+        // Any spawned items (e.g. auto-diameter split) arrive already
+        // `complete` with their own quantity — price each one directly.
+        if (u.spawn) {
+          for (const spawned of u.spawn) {
+            const qty = spawned.quantity ?? 0;
+            if (qty > 0) {
+              void fetchPrice(spawned, qty).then((patch) =>
+                applyUpdate({ id: spawned.id, patch }),
+              );
+            }
           }
         }
       },
