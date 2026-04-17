@@ -29,6 +29,9 @@ export function usePayItems() {
       totalCost: null,
       flagMessage: null,
       flagOptions: null,
+      ...(preset.fields.includes('autoDiameter')
+        ? { autoDiameterFromWidth: true }
+        : {}),
     };
     setItems((prev) => [...prev, newItem]);
   }, []);
@@ -52,12 +55,15 @@ export function usePayItems() {
             patch.objectType !== undefined ||
             patch.material !== undefined ||
             patch.diameter !== undefined ||
-            patch.thickness !== undefined
+            patch.thickness !== undefined ||
+            patch.autoDiameterFromWidth !== undefined
           ) {
             // Only reset if it wasn't already in a terminal state; resolution
             // updates come through this path too, so guard on explicit fields.
             const resetTriggered =
-              patch.layer !== undefined || patch.objectType !== undefined;
+              patch.layer !== undefined ||
+              patch.objectType !== undefined ||
+              patch.autoDiameterFromWidth !== undefined;
             if (resetTriggered && merged.status === 'complete') {
               merged.status = 'pending';
               merged.quantity = null;
@@ -77,11 +83,25 @@ export function usePayItems() {
   }, []);
 
   const applyUpdate = useCallback((update: PayItemUpdate) => {
-    setItems((prev) =>
-      prev.map((item) =>
+    setItems((prev) => {
+      const patched = prev.map((item) =>
         item.id === update.id ? { ...item, ...update.patch } : item,
-      ),
-    );
+      );
+      if (update.spawn && update.spawn.length > 0) {
+        // Slot spawned items immediately after the primary so the user
+        // reads the auto-diameter split as one logical group.
+        const primaryIndex = patched.findIndex((i) => i.id === update.id);
+        if (primaryIndex === -1) {
+          return [...patched, ...update.spawn];
+        }
+        return [
+          ...patched.slice(0, primaryIndex + 1),
+          ...update.spawn,
+          ...patched.slice(primaryIndex + 1),
+        ];
+      }
+      return patched;
+    });
   }, []);
 
   /**

@@ -300,6 +300,54 @@ function RowFields({
         </div>
       </div>
 
+      {item.fields.includes('autoDiameter') && (
+        <div
+          style={{
+            marginBottom: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
+        >
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--text-secondary)',
+              userSelect: 'none',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={item.autoDiameterFromWidth ?? false}
+              onChange={(e) =>
+                onUpdate(item.id, {
+                  autoDiameterFromWidth: e.target.checked,
+                })
+              }
+              style={{ margin: 0, cursor: 'pointer' }}
+            />
+            Auto-diameter from polyline width
+          </label>
+          {item.autoDiameterFromWidth &&
+            item.diameter &&
+            item.status === 'complete' && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--text-dim)',
+                  fontFamily: "'JetBrains Mono', monospace",
+                }}
+              >
+                Detected: {item.diameter}
+              </span>
+            )}
+        </div>
+      )}
       {item.fields.length > 0 && (
         <div
           style={{
@@ -308,7 +356,7 @@ function RowFields({
             gap: 8,
           }}
         >
-          {item.fields.includes('diameter') && (
+          {item.fields.includes('diameter') && !item.autoDiameterFromWidth && (
             <TextField
               label="Diameter"
               value={item.diameter || ''}

@@ -98,8 +98,40 @@ function measureCore(item: PayItem): MeasurementResult {
       ? findSiblingLayers(item, dxfTypes, aliases)
       : [];
 
-  const quantity = computeQuantity(item, summary);
-  const issue = detectIssues({ item, summary, entities, siblingLayers });
+  // Auto-detect pipe diameter from polyline global width where enabled.
+  // Groups polylines by snapped standard diameter (inches). When multiple
+  // standard diameters share a layer, the primary item keeps the largest
+  // bucket and each additional bucket is spawned as its own pay item.
+  const diameterGroups =
+    item.autoDiameterFromWidth && item.objectType === 'polyline'
+      ? groupByStandardDiameter(summary.polyline_width_breakdown)
+      : null;
+  const noWidthsDetected =
+    item.autoDiameterFromWidth === true &&
+    item.objectType === 'polyline' &&
+    (diameterGroups?.length ?? 0) === 0;
+
+  let detectedDiameter: string | undefined;
+  let spawnItems: PayItem[] | undefined;
+  let quantityOverride: number | undefined;
+  if (diameterGroups && diameterGroups.length >= 1) {
+    const [primary, ...rest] = diameterGroups;
+    detectedDiameter = `${primary.inches}"`;
+    if (rest.length > 0) {
+      // Multi-diameter split: primary item only counts its own bucket.
+      quantityOverride = round2(primary.totalLength);
+      spawnItems = rest.map((g) => spawnItemForDiameter(item, g));
+    }
+  }
+
+  const quantity = quantityOverride ?? computeQuantity(item, summary);
+  const issue = detectIssues({
+    item,
+    summary,
+    entities,
+    siblingLayers,
+    autoDiameterWidthsMissing: noWidthsDetected,
+  });
 
   if (issue) {
     return {
@@ -108,6 +140,8 @@ function measureCore(item: PayItem): MeasurementResult {
       unit: MEASUREMENT_UNITS[item.measurement],
       details: summary,
       issues: [issue],
+      detectedDiameter,
+      spawnItems,
     };
   }
 
@@ -124,6 +158,8 @@ function measureCore(item: PayItem): MeasurementResult {
           suggestedOptions: ['Set quantity manually', 'Skip this item'],
         },
       ],
+      detectedDiameter,
+      spawnItems,
     };
   }
 
@@ -132,7 +168,81 @@ function measureCore(item: PayItem): MeasurementResult {
     quantity,
     unit: MEASUREMENT_UNITS[item.measurement],
     details: summary,
+    detectedDiameter,
+    spawnItems,
   };
+}
+
+/** Standard nominal pipe sizes we snap detected widths to. */
+const STANDARD_DIAMETERS_IN = [4, 6, 8, 10, 12, 16, 20, 24];
+
+/** A collapsed bucket keyed by the standard diameter all its widths snap to. */
+export interface DiameterGroup {
+  inches: number;
+  totalLength: number;
+  totalCount: number;
+}
+
+function snapToStandard(rawInches: number): number {
+  return STANDARD_DIAMETERS_IN.reduce((best, s) =>
+    Math.abs(s - rawInches) < Math.abs(best - rawInches) ? s : best,
+  );
+}
+
+/**
+ * Collapse a `polyline_width_breakdown` map into groups keyed by the
+ * standard diameter each raw width snaps to (so 0.5 ft and 0.52 ft both
+ * count as 6"). Results are sorted largest-by-length first so the caller
+ * can treat `groups[0]` as the "primary" bucket.
+ */
+export function groupByStandardDiameter(
+  breakdown: Record<string, { count: number; total_length: number }> | undefined,
+): DiameterGroup[] {
+  if (!breakdown) return [];
+  const byInches = new Map<number, { totalLength: number; totalCount: number }>();
+  for (const [widthKey, g] of Object.entries(breakdown)) {
+    const widthFt = parseFloat(widthKey);
+    if (!Number.isFinite(widthFt) || widthFt <= 0) continue;
+    const inches = snapToStandard(widthFt * 12);
+    const existing =
+      byInches.get(inches) ?? { totalLength: 0, totalCount: 0 };
+    existing.totalLength += g.total_length;
+    existing.totalCount += g.count;
+    byInches.set(inches, existing);
+  }
+  return Array.from(byInches.entries())
+    .map(([inches, v]) => ({ inches, ...v }))
+    .sort((a, b) => b.totalLength - a.totalLength);
+}
+
+/**
+ * Build a complete pay item for a non-dominant diameter bucket. The new
+ * item inherits everything from the parent (layer, material, object
+ * type, icon, etc.) but pins its diameter to the bucket's inches so
+ * re-measuring or pricing treats it as an independent line. The parent's
+ * auto-diameter flag is dropped so the spawn isn't re-split on refresh.
+ */
+function spawnItemForDiameter(parent: PayItem, g: DiameterGroup): PayItem {
+  return {
+    ...parent,
+    id: makeSpawnId(),
+    diameter: `${g.inches}"`,
+    autoDiameterFromWidth: false,
+    status: 'complete',
+    quantity: round2(g.totalLength),
+    unitPrice: null,
+    totalCost: null,
+    flagMessage: null,
+    flagOptions: null,
+    priceSource: undefined,
+    resolutionNotes: undefined,
+    errorMessage: undefined,
+  };
+}
+
+/** Id for spawned items — scoped here so the renderer can trust uniqueness. */
+function makeSpawnId(): string {
+  return `item_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function toUpdate(
@@ -145,6 +255,12 @@ function toUpdate(
       patch: { status: 'error', errorMessage: result.errorMessage },
     };
   }
+  const diameterPatch = result.detectedDiameter
+    ? { diameter: result.detectedDiameter }
+    : {};
+  const spawn = result.spawnItems && result.spawnItems.length > 0
+    ? { spawn: result.spawnItems }
+    : {};
   if (result.issues && result.issues.length > 0) {
     const issue = result.issues[0];
     return {
@@ -154,7 +270,9 @@ function toUpdate(
         quantity: result.quantity ?? null,
         flagMessage: issue.message,
         flagOptions: issue.suggestedOptions,
+        ...diameterPatch,
       },
+      ...spawn,
     };
   }
   return {
@@ -164,7 +282,9 @@ function toUpdate(
       quantity: result.quantity ?? null,
       flagMessage: null,
       flagOptions: null,
+      ...diameterPatch,
     },
+    ...spawn,
   };
 }
 

@@ -21,6 +21,13 @@ export interface FlagContext {
   entities: EntityRecord[];
   /** Layer names that also have entities matching the object type. */
   siblingLayers?: string[];
+  /**
+   * True when auto-diameter is enabled, polylines exist on the layer, and
+   * none of them carry a non-zero ConstantWidth. The multi-diameter split
+   * handles the "several diameters on one layer" case, so the only
+   * remaining auto-diameter ambiguity is widths missing entirely.
+   */
+  autoDiameterWidthsMissing?: boolean;
 }
 
 /**
@@ -34,6 +41,7 @@ export function detectIssues(ctx: FlagContext): MeasurementIssue | null {
     checkSiblingLayers,
     checkUnexpectedTypes,
     checkMixedClosed,
+    checkAutoDiameterAmbiguous,
     checkShortSegments,
   ];
   for (const check of checks) {
@@ -131,6 +139,22 @@ function checkMixedClosed(ctx: FlagContext): MeasurementIssue | null {
     };
   }
   return null;
+}
+
+function checkAutoDiameterAmbiguous(
+  ctx: FlagContext,
+): MeasurementIssue | null {
+  if (!ctx.autoDiameterWidthsMissing) return null;
+  const polylineCount = ctx.entities.filter((e) =>
+    e.type.includes('Polyline'),
+  ).length;
+  if (polylineCount === 0) return null;
+  return {
+    type: 'ambiguous_diameter',
+    message:
+      'No polyline widths are set on this layer, so I can\'t infer a pipe diameter. Uncheck "Auto-diameter from polyline width" and enter one manually, or assign global widths in AutoCAD.',
+    suggestedOptions: ['Set quantity manually', 'Skip this item'],
+  };
 }
 
 function checkShortSegments(ctx: FlagContext): MeasurementIssue | null {
