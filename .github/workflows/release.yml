@@ -22,7 +22,10 @@ permissions:
 jobs:
   build:
     name: Build & publish
-    runs-on: windows-latest
+    # Pinned to windows-2022 because node-gyp@9 (bundled with Node 20) cannot
+    # detect Visual Studio 18/2026, which `windows-latest` now ships. VS 2022
+    # on this runner is the known-good combination for the winax native build.
+    runs-on: windows-2022
     timeout-minutes: 30
     env:
       # Force MSVC v143 toolset for node-gyp (avoids ClangCL default on Node 24+).

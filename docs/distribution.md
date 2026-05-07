@@ -137,7 +137,7 @@ You can also kick off a manual build via the **Run workflow** button on the Acti
 The first install is hands-on for the pilot. Send the user the direct download URL (with the version of the most recent release):
 
 ```
-https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.0-setup.exe
+https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.1-setup.exe
 ```
 
 Steps for the user:
