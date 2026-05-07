@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
 import { registerIpcHandlers } from './ipc-handlers';
+import { initAutoUpdater } from './auto-updater';
 
 const isDev = !app.isPackaged;
 
@@ -92,6 +93,7 @@ app.whenReady().then(() => {
   loadEnvFile();
   registerIpcHandlers({ getMainWindow });
   createWindow();
+  initAutoUpdater(getMainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

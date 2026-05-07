@@ -1,0 +1,6 @@
+# Dev-only override for electron-updater. Lets you test the update flow from
+# `npm run dev` without producing a packaged build. Mirrors the `publish` block
+# in electron-builder.yml. Not used in packaged builds.
+provider: generic
+url: https://stcostestimatordist.blob.core.windows.net/cost-estimator/
+channel: latest
