@@ -39,6 +39,8 @@ Requires AutoCAD 2024 running with a drawing open. The status chip in the header
 npm run package           # produces dist/Cost Estimator-<version>-setup.exe
 ```
 
+For the full distribution flow (Azure Blob Storage hosting, GitHub Actions release pipeline, auto-updates) see [`docs/distribution.md`](docs/distribution.md). Code signing is a planned next step — see [`docs/code-signing-setup.md`](docs/code-signing-setup.md).
+
 ## Useful scripts
 
 | Command | What it does |

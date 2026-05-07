@@ -25,6 +25,13 @@ nsis:
   shortcutName: '${productName}'
   uninstallDisplayName: '${productName}'
   createDesktopShortcut: always
+# Update feed. The installer + latest.yml + .blockmap are uploaded to this
+# Azure Blob Storage container by the GitHub Actions release workflow. The
+# installed app reads `latest.yml` from this URL on launch to check for
+# updates. To switch storage accounts later, change this URL and re-tag a
+# release. See docs/distribution.md for the full setup.
 publish:
   provider: generic
-  url: https://abonmarche-updates.example.com/cost-estimator/
+  url: https://stcostestimatordist.blob.core.windows.net/cost-estimator/
+  channel: latest
+  useMultipleRangeRequest: true
