@@ -1,116 +1,28 @@
 name: Release
 
-# Triggered when a version tag is pushed (e.g. `git tag v0.2.0 && git push --tags`).
-# Builds a Windows NSIS installer and uploads the installer + blockmap +
-# latest.yml manifest to Azure Blob Storage. The installed app polls that
-# manifest to deliver auto-updates. See docs/distribution.md.
+# Releases are produced from a developer machine via `scripts/release.ps1`,
+# not from CI. The reason is documented in ROADMAP.md "CI narrowed to skip
+# native module compile": getting `winax` to compile reliably on a
+# GitHub-hosted Windows runner is a known rabbit hole that doesn't pay for
+# itself until `winax` is replaced by the planned .NET sidecar.
+#
+# This workflow is kept as a workflow_dispatch-only stub so the release
+# pipeline can be moved into CI cleanly once that replacement lands. It
+# does not currently produce or upload anything; tag pushes do nothing.
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Build only, do not upload to Azure'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build & publish
-    # Pinned to windows-2022 because node-gyp@9 (bundled with Node 20) cannot
-    # detect Visual Studio 18/2026, which `windows-latest` now ships. VS 2022
-    # on this runner is the known-good combination for the winax native build.
-    runs-on: windows-2022
-    timeout-minutes: 30
-    env:
-      # Force MSVC v143 toolset for node-gyp (avoids ClangCL default on Node 24+).
-      npm_config_clang: '0'
-
+  noop:
+    name: Release (CI placeholder)
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Setup Python (for node-gyp)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        # Native winax compile + electron-builder install-app-deps run via
-        # postinstall. Do NOT pass --ignore-scripts here.
-        run: npm ci
-
-      - name: Rebuild winax for Electron
-        run: npm run rebuild
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build (electron-vite)
-        run: npm run build
-
-      - name: Package installer (electron-builder)
-        # --publish never: produce files locally; we upload to Azure ourselves
-        # below so we can use a storage account credential rather than a
-        # provider-specific token.
-        run: npx electron-builder --win --publish never
-
-      - name: List build artifacts
-        shell: pwsh
-        run: Get-ChildItem -Path dist -File | Select-Object Name, Length
-
-      - name: Upload installer to Azure Blob Storage
-        if: ${{ !inputs.dry_run }}
-        uses: azure/cli@v2
-        env:
-          AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
-          AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
-          AZURE_STORAGE_CONTAINER: ${{ secrets.AZURE_STORAGE_CONTAINER }}
-        with:
-          azcliversion: latest
-          inlineScript: |
-            az storage blob upload-batch `
-              --account-name "$env:AZURE_STORAGE_ACCOUNT" `
-              --account-key  "$env:AZURE_STORAGE_KEY" `
-              --destination  "$env:AZURE_STORAGE_CONTAINER" `
-              --source       dist `
-              --pattern      "*setup.exe" `
-              --overwrite true
-            az storage blob upload-batch `
-              --account-name "$env:AZURE_STORAGE_ACCOUNT" `
-              --account-key  "$env:AZURE_STORAGE_KEY" `
-              --destination  "$env:AZURE_STORAGE_CONTAINER" `
-              --source       dist `
-              --pattern      "*.blockmap" `
-              --overwrite true
-            az storage blob upload-batch `
-              --account-name "$env:AZURE_STORAGE_ACCOUNT" `
-              --account-key  "$env:AZURE_STORAGE_KEY" `
-              --destination  "$env:AZURE_STORAGE_CONTAINER" `
-              --source       dist `
-              --pattern      "latest.yml" `
-              --overwrite true `
-              --content-cache-control "no-cache, max-age=0"
-
-      - name: Upload installer as workflow artifact
-        # Always keep a copy on the run for debugging and out-of-band downloads.
-        uses: actions/upload-artifact@v4
-        with:
-          name: cost-estimator-installer
-          path: |
-            dist/*setup.exe
-            dist/*.blockmap
-            dist/latest.yml
-          if-no-files-found: error
-          retention-days: 30
+      - name: Print release instructions
+        run: |
+          echo "Releases are built from a developer machine."
+          echo "Run 'pwsh ./scripts/release.ps1' from a Windows checkout."
+          echo "See docs/distribution.md for the full procedure."

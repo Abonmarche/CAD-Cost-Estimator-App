@@ -5,50 +5,51 @@ This document covers how Cost Estimator is built, distributed, and auto-updated 
 ## Architecture
 
 ```
-+---------------+     git tag v0.X.Y       +-----------------------+
-|  Developer    | -----------------------> |  GitHub Actions       |
-|  (this repo)  |                          |  (.github/workflows/  |
-|               |                          |   release.yml)        |
-+---------------+                          +-----------+-----------+
-                                                       |
-                                                       | builds .exe + latest.yml
-                                                       | uploads via az CLI
-                                                       v
-                                           +-----------------------+
-                                           |  Azure Blob Storage   |
-                                           |  (public container)   |
-                                           |                       |
-                                           |  Cost Estimator-      |
-                                           |    0.X.Y-setup.exe    |
-                                           |  *.blockmap           |
-                                           |  latest.yml           |
-                                           +-----------+-----------+
-                                                       |
-                          +----------------------------+----------------------------+
-                          |                                                         |
-                          v                                                         v
-              +-----------------------+                            +-----------------------+
-              |  First-time install:  |                            |  Installed app:       |
-              |  user clicks the      |                            |  electron-updater     |
-              |  setup.exe download   |                            |  polls latest.yml on  |
-              |  link in their email  |                            |  launch and prompts   |
-              |  / SharePoint         |                            |  user to restart      |
-              +-----------------------+                            +-----------------------+
++----------------+    pwsh ./scripts/    +-----------------------+
+|  Developer     |    release.ps1        |  Azure Blob Storage   |
+|  workstation   | --------------------> |  (public container)   |
+|  (Windows +    |    (npm run package   |                       |
+|   AutoCAD VS   |     + az upload)      |  Cost Estimator-      |
+|   Build Tools) |                       |    0.X.Y-setup.exe    |
++----------------+                       |  *.blockmap           |
+                                         |  latest.yml           |
+                                         +-----------+-----------+
+                                                     |
+                        +----------------------------+----------------------------+
+                        |                                                         |
+                        v                                                         v
+            +-----------------------+                            +-----------------------+
+            |  First-time install:  |                            |  Installed app:       |
+            |  user clicks the      |                            |  electron-updater     |
+            |  setup.exe download   |                            |  polls latest.yml on  |
+            |  link in their email  |                            |  launch and prompts   |
+            |  / SharePoint         |                            |  user to restart      |
+            +-----------------------+                            +-----------------------+
 ```
 
 **Three components:**
 
-1. **GitHub** hosts source and triggers releases on tag push.
+1. **A Windows developer workstation** with the local toolchain (Node, VS 2022 Build Tools with C++ workload, AutoCAD optional). Runs `scripts/release.ps1` to build + upload.
 2. **Azure Blob Storage** hosts the installer + auto-update manifest. It is the only piece end-users hit directly.
 3. **electron-updater** (already in `package.json`) runs inside the installed app and polls the Blob Storage container for `latest.yml`.
 
+## Why we build releases from a developer machine instead of CI
+
+Per [ROADMAP.md](../ROADMAP.md) ("CI narrowed to skip native module compile"), `winax` is brittle to compile on GitHub-hosted Windows runners — node-gyp / Visual Studio version drift, missing ATL components, and (as of mid-2026) `windows-latest` being promoted to a VS 2026 image that bundled node-gyp doesn't recognize. Two release attempts via CI (v0.2.0 with VS 2026 → version detection failure, v0.2.1 with `windows-2022` pin → C++ compile errors against newer V8 headers) confirmed the rabbit hole.
+
+The team's documented stance is to keep CI on JS-only checks and revisit a full CI build once `winax` is replaced by the planned .NET sidecar (ROADMAP item #3). Until then, releases are cut from a developer workstation that already has a working local toolchain.
+
 ## One-time Azure setup
 
-Run these from a machine with the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed and `az login` already done. Use your Axea Labs subscription.
+Already done for this repo:
+
+- Resource group **rg-cost-estimator-app** (eastus2)
+- Storage account **stcostestimatordist** with public-blob container **cost-estimator**
+- GitHub repo secrets: `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_KEY`, `AZURE_STORAGE_CONTAINER` (used for the future CI release path)
+
+If you ever need to recreate from scratch:
 
 ```powershell
-# Pick names. The storage account name must be globally unique, 3-24 chars,
-# lowercase + digits only.
 $RG          = "rg-cost-estimator-app"
 $LOCATION    = "eastus2"
 $STORAGE     = "stcostestimatordist"   # must match electron-builder.yml `publish.url`
@@ -56,93 +57,77 @@ $CONTAINER   = "cost-estimator"
 $SUBSCRIPTION = "<your-axea-labs-subscription-id-or-name>"
 
 az account set --subscription "$SUBSCRIPTION"
-
-# 1. Resource group
 az group create --name $RG --location $LOCATION
-
-# 2. Storage account (Standard_LRS is the cheapest tier; fine for installers)
-az storage account create `
-  --name $STORAGE `
-  --resource-group $RG `
-  --location $LOCATION `
-  --sku Standard_LRS `
-  --kind StorageV2 `
-  --allow-blob-public-access true
-
-# 3. Public blob container — anyone with the URL can download the installer.
-#    `blob` access means individual blobs are readable but the container
-#    itself can't be listed.
-az storage container create `
-  --account-name $STORAGE `
-  --name $CONTAINER `
-  --public-access blob
-
-# 4. Grab the access key for GitHub Actions to authenticate with.
-az storage account keys list `
-  --resource-group $RG `
-  --account-name $STORAGE `
-  --query "[0].value" -o tsv
+az storage account create --name $STORAGE --resource-group $RG --location $LOCATION `
+  --sku Standard_LRS --kind StorageV2 --allow-blob-public-access true --min-tls-version TLS1_2
+az storage container create --account-name $STORAGE --name $CONTAINER --public-access blob
+az storage account keys list --resource-group $RG --account-name $STORAGE --query "[0].value" -o tsv
 ```
 
-The final command prints a long base64 string — that's the storage account access key. Treat it like a password; anyone with it can write to the container.
+> **Note on public access:** the container is publicly readable so non-technical users can download the installer with one click and so `electron-updater` can fetch `latest.yml` without auth. This is appropriate for an internal tool that isn't sensitive. If you later need to gate downloads, options include rotating SAS tokens, Entra ID-gated access via Azure Static Web Apps, or moving the container behind a VPN.
 
-> **Note on public access:** the container is publicly readable so non-technical users can download the installer with one click and so `electron-updater` can fetch `latest.yml` without auth. This is appropriate for an internal tool that isn't sensitive. If you later need to gate downloads, options include rotating SAS tokens (more complex client setup), Entra ID-gated access via Azure Static Web Apps, or moving the container behind a VPN.
+## One-time developer-workstation setup
 
-## One-time GitHub setup
+Required on whatever Windows machine cuts releases:
 
-In the repo's GitHub settings → **Secrets and variables → Actions**, add three repository secrets:
+1. **Node.js 20+, Visual Studio 2022 Build Tools (Desktop development with C++), Python 3.x** — the same prereqs as the README. If `npm run rebuild` works locally, you're set.
+2. **Azure CLI** (`winget install Microsoft.AzureCLI` or [download here](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)). Sign in with `az login` to your Axea Labs subscription.
+3. **Windows Developer Mode** — required so `electron-builder` can extract its `winCodeSign` cache, which contains symlinks. **This is a one-time toggle** that costs nothing:
 
-| Secret name | Value |
-|---|---|
-| `AZURE_STORAGE_ACCOUNT` | `stcostestimatordist` (or whatever you used for `$STORAGE`) |
-| `AZURE_STORAGE_KEY` | The access key from the last `az` command above |
-| `AZURE_STORAGE_CONTAINER` | `cost-estimator` (or whatever you used for `$CONTAINER`) |
+   - Open **Settings → Privacy & security → For developers**
+   - Turn **Developer Mode** on
+   - Confirm the prompt
 
-The release workflow at `.github/workflows/release.yml` reads these to authenticate with Azure during upload. The values are encrypted at rest in GitHub and only decrypted during workflow runs.
-
-## One-time repo wiring (already done)
-
-These are the changes already committed to the repo to support this flow — listed here so you understand the moving parts:
-
-- **`electron-builder.yml`** — `publish.provider: generic` with `url` pointing at the Blob Storage container. `electron-updater` reads the URL out of the packaged `app-update.yml` baked into the installer at build time.
-- **`src/main/auto-updater.ts`** — wires `electron-updater` into the app, prompts the user with "Update ready — restart now?" once a new build has been downloaded.
-- **`src/main/index.ts`** — calls `initAutoUpdater(...)` once the window is created.
-- **`.github/workflows/release.yml`** — fires on `v*.*.*` tag push, runs the full build (including native winax compile), then uploads the resulting `dist/*setup.exe`, `dist/*.blockmap`, and `dist/latest.yml` to Azure Blob Storage.
-- **`dev-app-update.yml`** — lets you test the auto-update flow from `npm run dev` without packaging.
+   Without Developer Mode, `npm run package` fails with `Cannot create symbolic link : A required privilege is not held by the client` during the winCodeSign cache extraction. Once Developer Mode is on (or the cache has been extracted once from an admin terminal), all future builds work normally.
 
 ## Cutting a release
 
 ```powershell
 # 1. Bump the version in package.json (this is the version that ends up in
 #    the installer filename and in latest.yml).
-#    e.g. "version": "0.2.0"
 
-# 2. Commit the bump and any release content.
-git commit -am "Release v0.2.0"
-git push
+# 2. Commit on a feature branch, open a PR, get the build CI green, merge.
+#    The repo enforces PRs on main (no direct pushes).
 
-# 3. Tag and push the tag — this triggers .github/workflows/release.yml.
-git tag v0.2.0
-git push --tags
+# 3. After merge, sync local main and tag the release commit:
+git checkout main
+git pull
+git tag v0.X.Y
+git push origin v0.X.Y
+
+# 4. Run the release script. Reads AZURE_STORAGE_KEY from env, or you can
+#    pass -StorageKey explicitly:
+$env:AZURE_STORAGE_KEY = (az storage account keys list `
+  --resource-group rg-cost-estimator-app `
+  --account-name stcostestimatordist `
+  --query "[0].value" -o tsv)
+pwsh ./scripts/release.ps1
 ```
 
-Within ~10-15 minutes (mostly `npm ci` + winax native rebuild), the workflow uploads the new installer + manifest to Blob Storage. Anyone with the app already installed will see an "Update ready" prompt the next time they launch.
+The script:
 
-To re-run a release without bumping the version (e.g. CI failed mid-upload), delete the tag locally and remotely (`git tag -d v0.2.0; git push origin :refs/tags/v0.2.0`) and re-tag.
+1. Reads the version from `package.json`.
+2. Runs `npm run package`. Takes ~2-5 minutes on a warm cache (downloads Electron the first time, ~115 MB).
+3. Uploads `Cost Estimator-X.Y.Z-setup.exe`, `*.blockmap`, and `latest.yml` to Azure Blob Storage.
+4. Sets `Cache-Control: no-cache` on `latest.yml` so installed apps see the new version on the next launch.
 
-You can also kick off a manual build via the **Run workflow** button on the Actions tab — useful for testing CI changes without cutting a real release. The `dry_run` input skips the Azure upload step.
+Anyone with the app already installed will see an "Update ready" prompt the next time they launch it.
+
+To re-release without bumping the version (e.g. an upload was interrupted), just re-run the script with `-SkipBuild` if `dist/` is still populated, or with no flags to rebuild from scratch.
 
 ## How users install
 
-The first install is hands-on for the pilot. Send the user the direct download URL (with the version of the most recent release):
+The first install is hands-on for the pilot. Send the user the direct download URL:
 
 ```
-https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.1-setup.exe
+https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.2-setup.exe
 ```
+
+(Replace the version with whatever's currently shipped — `latest.yml` always describes the current version.)
 
 Steps for the user:
 
-1. Click the link → browser downloads `Cost Estimator-0.1.0-setup.exe`.
+1. Click the link → browser downloads `Cost Estimator-0.2.2-setup.exe`.
 2. Double-click to run it.
 3. **Windows SmartScreen will show a blue "Windows protected your PC" panel** because the installer is unsigned. Tell users in advance:
    - Click **More info** (small link, easy to miss).
@@ -156,9 +141,9 @@ Once installed, the SmartScreen dance is **not repeated for auto-updates** — t
 
 ## How auto-updates work
 
-When the app launches in production, `src/main/auto-updater.ts`:
+When the app launches in production, [`src/main/auto-updater.ts`](../src/main/auto-updater.ts):
 
-1. Reads the publish URL baked into the installer.
+1. Reads the publish URL baked into the installer (`https://stcostestimatordist.blob.core.windows.net/cost-estimator/`).
 2. Fetches `latest.yml` from Azure Blob Storage.
 3. Compares the version in `latest.yml` to the installed version.
 4. If newer, downloads the installer in the background, verifies its SHA512 against the manifest.
@@ -169,50 +154,43 @@ If the user picks "Later", the new installer is applied automatically when they 
 
 ## Testing the update flow locally
 
-You can verify the wiring without cutting a real release:
+You can verify the wiring without exposing anything to real users:
 
-1. Bump `package.json` to a fake high version (e.g. `0.99.0`) and run `npm run package` to produce a "future" installer in `dist/`.
-2. Manually upload that one to Azure Blob Storage:
-   ```powershell
-   az storage blob upload-batch `
-     --account-name stcostestimatordist `
-     --account-key "<key>" `
-     --destination cost-estimator `
-     --source dist `
-     --pattern "*setup.exe"
-   az storage blob upload-batch `
-     --account-name stcostestimatordist `
-     --account-key "<key>" `
-     --destination cost-estimator `
-     --source dist `
-     --pattern "latest.yml"
-   ```
-3. Bump `package.json` back to `0.1.0`, `npm run package`, install that build locally.
-4. Launch the installed app. Within ~30 seconds you should see the "Update ready" dialog offering 0.99.0.
-5. After you've verified, delete the fake 0.99.0 blobs from the container.
+1. Bump `package.json` to a fake high version (e.g. `0.99.0`).
+2. Run `pwsh ./scripts/release.ps1` to upload that "future" build.
+3. Bump `package.json` back, do another release at the real version.
+4. Install the lower-version build locally. On launch, the auto-updater will see `0.99.0` in `latest.yml` and prompt to restart.
+5. After verifying, manually delete the fake `0.99.0-setup.exe` blob from the container and re-upload the real `latest.yml`.
 
 ## Costs
 
 Azure Blob Storage Standard_LRS in `eastus2`:
 
-- Storage: ~$0.018/GB/month. A `0.1.0-setup.exe` is ~150-200 MB; you'll have a few versions in the bucket → maybe 1-2 GB total. **<$0.05/month.**
+- Storage: ~$0.018/GB/month. A `0.X.Y-setup.exe` is ~150-200 MB; you'll have a few versions in the bucket → maybe 1-2 GB total. **<$0.05/month.**
 - Egress: $0.0–0.087/GB depending on tier. ~50 users × 200 MB initial download + occasional updates ≈ <$1/month.
 
 Effectively rounding-error money for an internal tool.
 
 ## Troubleshooting
 
-**"electron-builder fails on `npm ci` in CI"**
-The native winax build needs Visual Studio Build Tools and Python 3.x — both are pre-installed on `windows-latest` runners. The workflow pins Python 3.11 and forces the MSVC toolset (`npm_config_clang=0`) to dodge the Node 24+ ClangCL default. If the rebuild ever fails, the most common cause is a winax version drift — re-run `npm install` locally to pick up matching prebuilds, then commit the lockfile.
+**`npm run package` fails with "Cannot create symbolic link : A required privilege is not held by the client"**
+You haven't enabled Windows Developer Mode (one-time). Settings → Privacy & security → For developers → Developer Mode → On. Re-run `npm run package`. The 7z error is from the winCodeSign cache extraction.
+
+**`npm run package` fails with `gyp ERR! find VS could not find a version of Visual Studio 2017 or newer to use`**
+You're missing Visual Studio 2022 Build Tools, or only the C# workload is installed. Open the Visual Studio Installer, modify your VS 2022 install, add **Desktop development with C++**, and retry. Then `npm run rebuild` to recompile `winax` against the newly available toolchain.
+
+**`scripts/release.ps1` fails on the upload step with `AuthenticationFailed`**
+Either `AZURE_STORAGE_KEY` is unset or has rotated. Refresh it:
+```powershell
+$env:AZURE_STORAGE_KEY = (az storage account keys list `
+  --resource-group rg-cost-estimator-app --account-name stcostestimatordist `
+  --query "[0].value" -o tsv)
+```
 
 **"Users see the SmartScreen warning every time they launch the app"**
 SmartScreen only fires on *install* of an unsigned binary, not on launch of an already-installed app. If users see warnings during normal use, something else (corporate AV, WDAC) is involved — see the corporate IT note above.
 
 **"Auto-updates don't work"**
-1. Verify `latest.yml` is in the container and publicly readable: open `https://<storage>.blob.core.windows.net/<container>/latest.yml` in a browser. You should see YAML, not an XML error.
+1. Verify `latest.yml` is in the container and publicly readable: open `https://stcostestimatordist.blob.core.windows.net/cost-estimator/latest.yml` in a browser. You should see YAML, not an XML error.
 2. Verify the version in `latest.yml` is greater than the installed app's `package.json` version.
-3. Look at the app's main-process logs (`%APPDATA%\cost-estimator\logs\` if you've added logging, or run a dev build to console).
-4. If the installer is signed but `latest.yml` was uploaded before signing was wired up, the signature mismatch will block the update. Re-publish a signed release to recover.
-
-**"I uploaded a new version and the app doesn't see it"**
-Browser/CDN caching of `latest.yml` is the usual cause. The release workflow sets `Cache-Control: no-cache, max-age=0` on `latest.yml` to prevent this. If you uploaded manually with `az storage blob upload`, pass `--content-cache-control "no-cache, max-age=0"`.
+3. If `latest.yml` shows the new version but installed apps aren't seeing it, browser/CDN caching is the usual cause. The release script sets `Cache-Control: no-cache, max-age=0` on `latest.yml` to prevent this; if you uploaded manually, pass `--content-cache-control "no-cache, max-age=0"` to `az storage blob upload`.
