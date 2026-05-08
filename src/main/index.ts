@@ -11,8 +11,15 @@ import { app, BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
+import { injectBakedEnv } from './baked-env';
 import { registerIpcHandlers } from './ipc-handlers';
 import { initAutoUpdater } from './auto-updater';
+
+// Run BEFORE anything else touches process.env or imports an SDK that
+// reads from it. ES module imports hoist, so this still runs after the
+// imports above — but the imports above don't trigger SDK env reads
+// (those happen lazily inside ipc-handlers).
+injectBakedEnv();
 
 const isDev = !app.isPackaged;
 

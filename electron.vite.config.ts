@@ -38,11 +38,21 @@ function loadDotEnv(): Record<string, string> {
 }
 
 const dotenv = loadDotEnv();
+// Use `||` not `??` so an empty-string env var (common when the build
+// shell inherits an unset-but-defined ANTHROPIC_API_KEY="") falls through
+// to the .env file value rather than baking an empty string into the
+// bundle and silently breaking the resolution chat.
 const bakedEnv = {
   COSTESTDB_MCP_URL:
-    process.env.COSTESTDB_MCP_URL ?? dotenv.COSTESTDB_MCP_URL ?? '',
+    process.env.COSTESTDB_MCP_URL || dotenv.COSTESTDB_MCP_URL || '',
   COSTESTDB_FUNCTION_KEY:
-    process.env.COSTESTDB_FUNCTION_KEY ?? dotenv.COSTESTDB_FUNCTION_KEY ?? '',
+    process.env.COSTESTDB_FUNCTION_KEY || dotenv.COSTESTDB_FUNCTION_KEY || '',
+  // Anthropic key for the resolution-chat (Estimator Assistant). Baked
+  // into the bundle so distributed installers don't require each user to
+  // configure their own. The key MUST be a workspace-scoped key with a
+  // hard monthly spend cap — see docs/release-checklist.md.
+  ANTHROPIC_API_KEY:
+    process.env.ANTHROPIC_API_KEY || dotenv.ANTHROPIC_API_KEY || '',
 };
 
 export default defineConfig({
@@ -59,6 +69,9 @@ export default defineConfig({
       ),
       'process.env.COSTESTDB_FUNCTION_KEY': JSON.stringify(
         bakedEnv.COSTESTDB_FUNCTION_KEY,
+      ),
+      'process.env.ANTHROPIC_API_KEY': JSON.stringify(
+        bakedEnv.ANTHROPIC_API_KEY,
       ),
     },
     build: {
