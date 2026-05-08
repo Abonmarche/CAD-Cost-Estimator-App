@@ -20,10 +20,12 @@
     Required env vars (or pass as parameters):
       AZURE_STORAGE_ACCOUNT     defaults to stcostestimatordist
       AZURE_STORAGE_CONTAINER   defaults to cost-estimator
-      AZURE_STORAGE_KEY         storage account access key (no default)
+      AZURE_STORAGE_KEY         storage account access key. If unset, the
+                                script will run `az storage account keys
+                                list` to fetch it (requires `az login`).
 
     Usage:
-      pwsh ./scripts/release.ps1
+      pwsh ./scripts/release.ps1                   # full build + upload
       pwsh ./scripts/release.ps1 -SkipBuild        # if dist/ is already populated
       pwsh ./scripts/release.ps1 -SkipUpload       # build only, no upload
 #>
@@ -74,7 +76,15 @@ if ($SkipUpload) {
 }
 
 if (-not $StorageKey) {
-  throw "AZURE_STORAGE_KEY not set. Either export it, pass -StorageKey, or run: az storage account keys list --resource-group rg-cost-estimator-app --account-name $StorageAccount --query '[0].value' -o tsv"
+  Write-Host "AZURE_STORAGE_KEY not set; resolving via az CLI..." -ForegroundColor DarkYellow
+  $StorageKey = az storage account keys list `
+    --resource-group rg-cost-estimator-app `
+    --account-name $StorageAccount `
+    --query "[0].value" -o tsv 2>&1
+  if ($LASTEXITCODE -ne 0 -or -not $StorageKey) {
+    throw "Could not resolve storage key. Run 'az login' to authenticate, or pass -StorageKey explicitly."
+  }
+  Write-Host "  Resolved key from Azure CLI." -ForegroundColor DarkGray
 }
 
 Write-Host "Uploading to https://$StorageAccount.blob.core.windows.net/$StorageContainer/" -ForegroundColor Cyan
