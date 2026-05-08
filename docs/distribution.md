@@ -120,7 +120,7 @@ To re-release without bumping the version (e.g. an upload was interrupted), just
 The first install is hands-on for the pilot. Send the user the direct download URL:
 
 ```
-https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.2-setup.exe
+https://stcostestimatordist.blob.core.windows.net/cost-estimator/Cost%20Estimator-0.2.3-setup.exe
 ```
 
 (Replace the version with whatever's currently shipped — `latest.yml` always describes the current version.)
