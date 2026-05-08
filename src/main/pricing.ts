@@ -12,7 +12,11 @@
  * enter a price manually or use the resolution chat to look it up).
  */
 
-import type { PriceLookupPayload, PriceLookupResult } from '@shared/types';
+import type {
+  CostEstDbStatus,
+  PriceLookupPayload,
+  PriceLookupResult,
+} from '@shared/types';
 import { getCostEstDbConfig } from './tools/costestdb';
 
 // The MCP SDK is pure ESM — lazy-import to avoid ERR_REQUIRE_ESM at boot.
@@ -22,10 +26,35 @@ type McpClient = {
     name: string;
     arguments: Record<string, unknown>;
   }) => Promise<{ content: Array<{ type: string; text?: string }> }>;
+  listTools: () => Promise<{ tools: Array<{ name: string }> }>;
   close: () => Promise<void>;
 };
 
 let clientPromise: Promise<McpClient | null> | null = null;
+
+interface ConnectionState {
+  connected: boolean;
+  error?: string;
+  toolCount?: number;
+  /** Epoch ms of last connection attempt. */
+  lastAttempt: number;
+}
+
+let connectionState: ConnectionState = {
+  connected: false,
+  lastAttempt: 0,
+};
+
+/** Strip `?code=...` so the URL is safe to surface in the UI/tooltips. */
+function safeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = '';
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 async function getClient(): Promise<McpClient | null> {
   if (clientPromise) return clientPromise;
@@ -34,6 +63,7 @@ async function getClient(): Promise<McpClient | null> {
 }
 
 async function createClient(): Promise<McpClient | null> {
+  connectionState = { ...connectionState, lastAttempt: Date.now() };
   try {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
     const { SSEClientTransport } = await import(
@@ -51,11 +81,69 @@ async function createClient(): Promise<McpClient | null> {
     );
 
     await client.connect(transport);
+    connectionState = {
+      connected: true,
+      lastAttempt: Date.now(),
+    };
     return client as unknown as McpClient;
   } catch (e) {
-    console.warn('CostEstDB MCP client creation failed:', (e as Error).message);
+    const msg = (e as Error).message;
+    console.warn('CostEstDB MCP client creation failed:', msg);
+    connectionState = {
+      connected: false,
+      error: msg,
+      lastAttempt: Date.now(),
+    };
     clientPromise = null;
     return null;
+  }
+}
+
+/**
+ * Probe the MCP server and return current connection status. Called by the
+ * renderer on a poll so the header chip reflects reality. The probe reuses
+ * the persistent SSE client when possible — `listTools()` is a cheap RPC
+ * over the open connection. If the connection is broken we reset and the
+ * next poll will retry.
+ */
+export async function getCostEstDbStatus(): Promise<CostEstDbStatus> {
+  const cfg = getCostEstDbConfig();
+  const url = safeUrl(cfg.url);
+
+  // Throttle reconnect attempts so a dead endpoint doesn't get hammered.
+  const RETRY_COOLDOWN_MS = 5_000;
+  const sinceLast = Date.now() - connectionState.lastAttempt;
+  const shouldRetry =
+    !connectionState.connected && sinceLast > RETRY_COOLDOWN_MS;
+
+  if (!clientPromise || shouldRetry) {
+    if (shouldRetry) clientPromise = null;
+    await getClient();
+  }
+
+  const client = await getClient();
+  if (!client) {
+    return { connected: false, url, error: connectionState.error };
+  }
+
+  try {
+    const result = await client.listTools();
+    const toolCount = result.tools?.length ?? 0;
+    connectionState = {
+      connected: true,
+      toolCount,
+      lastAttempt: Date.now(),
+    };
+    return { connected: true, url, toolCount };
+  } catch (e) {
+    const msg = (e as Error).message;
+    clientPromise = null;
+    connectionState = {
+      connected: false,
+      error: msg,
+      lastAttempt: Date.now(),
+    };
+    return { connected: false, url, error: msg };
   }
 }
 

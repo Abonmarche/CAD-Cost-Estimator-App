@@ -143,6 +143,20 @@ export interface ServerStatus {
   error?: string;
 }
 
+/**
+ * Connection status for the remote CostEstDB MCP server. Surfaced in the
+ * header next to the AutoCAD chip so the user knows up front whether
+ * pricing lookups will work.
+ */
+export interface CostEstDbStatus {
+  connected: boolean;
+  /** Number of tools the MCP server advertised on the last successful check. */
+  toolCount?: number;
+  /** Endpoint URL with any query string stripped — purely informational. */
+  url?: string;
+  error?: string;
+}
+
 export interface MeasurementIssue {
   type:
     | 'multiple_layers'
