@@ -18,6 +18,7 @@ import type {
   ServerStatus,
   SetManualPayload,
   LayerInfo,
+  UpdateCheckResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -45,6 +46,8 @@ export interface CostEstimatorApi {
     | { success: true; filePath: string }
     | { success: false; error: string }
   >;
+  getAppVersion(): Promise<string>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
 }
 
 const api: CostEstimatorApi = {
@@ -80,6 +83,10 @@ const api: CostEstimatorApi = {
 
   exportEstimate: (payload) =>
     ipcRenderer.invoke(IPC_CHANNELS.EstimateExport, payload),
+
+  getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.AppGetVersion),
+
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.AppCheckForUpdates),
 };
 
 contextBridge.exposeInMainWorld('costEstimator', api);

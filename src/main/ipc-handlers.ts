@@ -7,7 +7,7 @@
  *     multiple updates (measure, resolve)
  */
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 
 import type {
   MeasurePayload,
@@ -17,6 +17,7 @@ import type {
   ResolvePayload,
   ServerStatus,
   SetManualPayload,
+  UpdateCheckResult,
 } from '@shared/types';
 import { IPC_CHANNELS } from '@shared/constants';
 
@@ -26,6 +27,7 @@ import { measureAll } from './measurement';
 import { priceLookup } from './pricing';
 import { exportEstimate } from './export';
 import { resolvePayItem } from './agent';
+import { manualCheckForUpdates } from './auto-updater';
 
 export interface IpcContext {
   getMainWindow(): BrowserWindow | null;
@@ -125,4 +127,15 @@ export function registerIpcHandlers(ctx: IpcContext): void {
       return { success: false as const, error: (e as Error).message };
     }
   });
+
+  ipcMain.handle(IPC_CHANNELS.AppGetVersion, async (): Promise<string> => {
+    return app.getVersion();
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.AppCheckForUpdates,
+    async (): Promise<UpdateCheckResult> => {
+      return manualCheckForUpdates();
+    },
+  );
 }

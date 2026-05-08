@@ -1,4 +1,12 @@
-import type { MeasurementType, ServerStatus } from '@shared/types';
+import { useEffect, useRef, useState } from 'react';
+
+import type {
+  MeasurementType,
+  ServerStatus,
+  UpdateCheckResult,
+} from '@shared/types';
+
+import { useAppVersion } from '../hooks/useAppVersion';
 
 interface Stats {
   complete: number;
@@ -48,9 +56,7 @@ export function ProjectHeader({ status, stats }: Props) {
           <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>
             Cost Estimator
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-            AutoCAD + CostEstDB
-          </div>
+          <VersionLine />
         </div>
       </div>
 
@@ -96,6 +102,193 @@ export function ProjectHeader({ status, stats }: Props) {
   );
 }
 
+/**
+ * Version display + manual update check trigger. Lives under the app title
+ * so it's always visible without competing with the run-state info on the
+ * right-hand side. Clicking the version triggers an update check; the
+ * result is shown inline for ~6s, errors stick until the next click.
+ */
+function VersionLine() {
+  const version = useAppVersion();
+  const [check, setCheck] = useState<{
+    state: 'idle' | 'checking' | 'done';
+    result?: UpdateCheckResult;
+  }>({ state: 'idle' });
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+    };
+  }, []);
+
+  async function runCheck() {
+    if (check.state === 'checking') return;
+    if (clearTimer.current) {
+      clearTimeout(clearTimer.current);
+      clearTimer.current = null;
+    }
+    setCheck({ state: 'checking' });
+    try {
+      const result = await window.costEstimator.checkForUpdates();
+      setCheck({ state: 'done', result });
+      // Errors and unconfigured-feed states should stick — the user may
+      // need to act on them. Successful "up to date" or "downloading"
+      // messages auto-clear so the version line returns to its quiet state.
+      if (result.status === 'up-to-date' || result.status === 'downloading') {
+        clearTimer.current = setTimeout(
+          () => setCheck({ state: 'idle' }),
+          6000,
+        );
+      }
+    } catch (e) {
+      setCheck({
+        state: 'done',
+        result: {
+          status: 'error',
+          currentVersion: version ?? '?',
+          message: (e as Error).message ?? 'Check failed.',
+        },
+      });
+    }
+  }
+
+  if (!version) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+        AutoCAD + CostEstDB
+      </div>
+    );
+  }
+
+  const checkLabel = renderCheckLabel(check);
+
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        color: 'var(--text-dim)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <button
+        type="button"
+        onClick={runCheck}
+        title="Click to check for updates"
+        disabled={check.state === 'checking'}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          color: 'var(--text-dim)',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          cursor: check.state === 'checking' ? 'wait' : 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+        onMouseEnter={(e) => {
+          if (check.state !== 'checking') {
+            e.currentTarget.style.color = 'var(--text-primary)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = 'var(--text-dim)';
+        }}
+      >
+        <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+          v{version}
+        </span>
+        <BetaBadge />
+      </button>
+      <span style={{ color: 'var(--text-muted)' }}>·</span>
+      <span>AutoCAD + CostEstDB</span>
+      {checkLabel && (
+        <>
+          <span style={{ color: 'var(--text-muted)' }}>·</span>
+          {checkLabel}
+        </>
+      )}
+    </div>
+  );
+}
+
+function BetaBadge() {
+  return (
+    <span
+      style={{
+        background: 'rgba(245, 158, 11, 0.18)',
+        color: 'var(--accent-amber)',
+        padding: '1px 6px',
+        borderRadius: 4,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+      }}
+    >
+      Beta
+    </span>
+  );
+}
+
+function renderCheckLabel(check: {
+  state: 'idle' | 'checking' | 'done';
+  result?: UpdateCheckResult;
+}) {
+  if (check.state === 'idle') return null;
+  if (check.state === 'checking') {
+    return (
+      <span style={{ color: 'var(--text-muted)' }}>Checking for updates…</span>
+    );
+  }
+  const r = check.result;
+  if (!r) return null;
+  switch (r.status) {
+    case 'up-to-date':
+      return (
+        <span style={{ color: 'var(--accent-green)' }}>
+          ✓ You’re on the latest version
+        </span>
+      );
+    case 'update-available':
+      return (
+        <span style={{ color: 'var(--accent-amber)' }}>
+          Update v{r.latestVersion} available
+        </span>
+      );
+    case 'downloading':
+      return (
+        <span style={{ color: 'var(--accent-amber)' }}>
+          ↓ v{r.latestVersion} downloading — restart prompt will appear
+        </span>
+      );
+    case 'check-running':
+      return <span style={{ color: 'var(--text-muted)' }}>{r.message}</span>;
+    case 'disabled':
+      return (
+        <span style={{ color: 'var(--text-muted)' }} title={r.message}>
+          Updates unavailable
+        </span>
+      );
+    case 'error':
+      return (
+        <span style={{ color: 'var(--accent-red)' }} title={r.message}>
+          Check failed
+        </span>
+      );
+    default: {
+      // Exhaustiveness guard.
+      const _exhaustive: never = r;
+      void _exhaustive;
+      return null;
+    }
+  }
+}
+
 function StatusChip({ status }: { status: ServerStatus }) {
   const color = status.connected ? 'var(--accent-green)' : 'var(--accent-red)';
   const label = status.connected
@@ -130,7 +323,9 @@ function StatusChip({ status }: { status: ServerStatus }) {
           flexShrink: 0,
         }}
       />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {label}
+      </span>
     </div>
   );
 }

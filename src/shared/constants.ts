@@ -90,6 +90,8 @@ export const IPC_CHANNELS = {
   EstimateSetManual: 'estimate:set-manual',
   EstimatePrice: 'estimate:price',
   EstimateExport: 'estimate:export',
+  AppGetVersion: 'app:get-version',
+  AppCheckForUpdates: 'app:check-for-updates',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

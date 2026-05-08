@@ -263,3 +263,27 @@ export interface PriceLookupResult {
     year?: number;
   }>;
 }
+
+// ---------- App version + update check ----------
+
+/**
+ * Result of a manual "Check for updates" trigger from the renderer. The
+ * underlying download (when an update is available) is still handled by
+ * `electron-updater`'s autoDownload + the existing `update-downloaded`
+ * dialog flow — this result just tells the UI what to show immediately.
+ */
+export type UpdateCheckResult =
+  | { status: 'up-to-date'; currentVersion: string; latestVersion: string }
+  | {
+      status: 'update-available';
+      currentVersion: string;
+      latestVersion: string;
+    }
+  | {
+      status: 'downloading';
+      currentVersion: string;
+      latestVersion: string;
+    }
+  | { status: 'check-running'; currentVersion: string; message: string }
+  | { status: 'disabled'; currentVersion: string; message: string }
+  | { status: 'error'; currentVersion: string; message: string };
