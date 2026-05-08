@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type {
+  CostEstDbStatus,
   MeasurementType,
   ServerStatus,
   UpdateCheckResult,
@@ -17,11 +18,12 @@ interface Stats {
 
 interface Props {
   status: ServerStatus;
+  mcpStatus: CostEstDbStatus;
   stats: Stats;
   unitLabels: Record<MeasurementType, string>;
 }
 
-export function ProjectHeader({ status, stats }: Props) {
+export function ProjectHeader({ status, mcpStatus, stats }: Props) {
   return (
     <header
       style={{
@@ -69,6 +71,7 @@ export function ProjectHeader({ status, stats }: Props) {
         }}
       >
         <StatusChip status={status} />
+        <McpStatusChip status={mcpStatus} />
         {stats.complete + stats.flagged + stats.pending > 0 && (
           <>
             {stats.complete > 0 && (
@@ -299,6 +302,56 @@ function StatusChip({ status }: { status: ServerStatus }) {
   return (
     <div
       title={status.error ?? status.document ?? ''}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        borderRadius: 14,
+        background: `${color}20`,
+        color,
+        fontWeight: 500,
+        maxWidth: 260,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: color,
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Connection chip for the CostEstDB MCP. Mirrors the AutoCAD chip so the
+ * user sees up front whether pricing lookups will resolve. Tooltip surfaces
+ * the actual error so a 401 / network issue can be diagnosed without
+ * digging into devtools.
+ */
+function McpStatusChip({ status }: { status: CostEstDbStatus }) {
+  const color = status.connected ? 'var(--accent-green)' : 'var(--accent-red)';
+  const label = status.connected
+    ? `CostEstDB${status.toolCount ? ` · ${status.toolCount} tools` : ''}`
+    : status.error
+      ? 'CostEstDB offline'
+      : 'CostEstDB connecting...';
+  const tooltip = status.connected
+    ? `Pricing MCP connected${status.url ? ` (${status.url})` : ''}`
+    : (status.error ?? 'Connecting to CostEstDB MCP...');
+  return (
+    <div
+      title={tooltip}
       style={{
         display: 'flex',
         alignItems: 'center',

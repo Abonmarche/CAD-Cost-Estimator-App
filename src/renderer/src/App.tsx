@@ -9,6 +9,7 @@ import { PayItemList } from './components/PayItemList';
 import { ActionBar } from './components/ActionBar';
 import { EmptyState } from './components/EmptyState';
 import { useAutocadStatus } from './hooks/useAutocadStatus';
+import { useCostEstDbStatus } from './hooks/useCostEstDbStatus';
 import { usePayItems } from './hooks/usePayItems';
 import { useEstimate } from './hooks/useEstimate';
 
@@ -17,6 +18,7 @@ export function App() {
   const [pickerOpen, setPickerOpen] = useState(true);
 
   const status = useAutocadStatus();
+  const mcpStatus = useCostEstDbStatus();
   const {
     items,
     addItem,
@@ -81,6 +83,7 @@ export function App() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <ProjectHeader
         status={status}
+        mcpStatus={mcpStatus}
         stats={stats}
         unitLabels={MEASUREMENT_UNITS}
       />

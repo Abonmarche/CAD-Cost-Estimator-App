@@ -82,6 +82,7 @@ export const DEFAULT_AUTOCAD_PROGID = 'AutoCAD.Application.24.3';
 
 export const IPC_CHANNELS = {
   AutocadStatus: 'autocad:status',
+  CostestdbStatus: 'costestdb:status',
   ListLayers: 'autocad:list-layers',
   EstimateMeasure: 'estimate:measure',
   EstimateMeasureUpdate: 'estimate:measure-update',

@@ -10,6 +10,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import type {
+  CostEstDbStatus,
   MeasurePayload,
   PayItemUpdate,
   PriceLookupPayload,
@@ -24,7 +25,7 @@ import { IPC_CHANNELS } from '@shared/constants';
 import { getServerStatus } from './tools/autocad/status';
 import { listLayers } from './tools/autocad/layers';
 import { measureAll } from './measurement';
-import { priceLookup } from './pricing';
+import { priceLookup, getCostEstDbStatus } from './pricing';
 import { exportEstimate } from './export';
 import { resolvePayItem } from './agent';
 import { manualCheckForUpdates } from './auto-updater';
@@ -37,6 +38,13 @@ export function registerIpcHandlers(ctx: IpcContext): void {
   ipcMain.handle(IPC_CHANNELS.AutocadStatus, async (): Promise<ServerStatus> => {
     return getServerStatus();
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.CostestdbStatus,
+    async (): Promise<CostEstDbStatus> => {
+      return getCostEstDbStatus();
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.ListLayers, async () => {
     try {

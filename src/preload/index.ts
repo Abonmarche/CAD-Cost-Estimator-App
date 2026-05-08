@@ -8,6 +8,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type {
+  CostEstDbStatus,
   EstimateExport,
   MeasurePayload,
   PayItemUpdate,
@@ -26,6 +27,7 @@ type Unsubscribe = () => void;
 
 export interface CostEstimatorApi {
   getAutocadStatus(): Promise<ServerStatus>;
+  getCostEstDbStatus(): Promise<CostEstDbStatus>;
   listLayers(): Promise<
     | { success: true; layers: LayerInfo[] }
     | { success: false; error: string }
@@ -52,6 +54,8 @@ export interface CostEstimatorApi {
 
 const api: CostEstimatorApi = {
   getAutocadStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AutocadStatus),
+
+  getCostEstDbStatus: () => ipcRenderer.invoke(IPC_CHANNELS.CostestdbStatus),
 
   listLayers: () => ipcRenderer.invoke(IPC_CHANNELS.ListLayers),
 
