@@ -18,7 +18,8 @@
     "rebuild": "cross-env npm_config_clang=0 electron-rebuild -f -w winax",
     "postinstall": "electron-builder install-app-deps",
     "package": "electron-vite build && electron-builder --win --publish never",
-    "publish": "electron-vite build && electron-builder --win --publish always"
+    "release": "pwsh ./scripts/release.ps1",
+    "release:upload-only": "pwsh ./scripts/release.ps1 -SkipBuild"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",

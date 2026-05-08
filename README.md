@@ -39,7 +39,35 @@ Requires AutoCAD 2024 running with a drawing open. The status chip in the header
 npm run package           # produces dist/Cost Estimator-<version>-setup.exe
 ```
 
-For the full distribution flow (Azure Blob Storage hosting, GitHub Actions release pipeline, auto-updates) see [`docs/distribution.md`](docs/distribution.md). Code signing is a planned next step — see [`docs/code-signing-setup.md`](docs/code-signing-setup.md).
+This builds the installer locally without uploading anything. To actually ship a new version to installed users, see the next section.
+
+## Releasing updates
+
+> **Pushing to `main` does not update the installer hosted on Azure.** Releases are a deliberate, manual step. Tag pushes also do nothing. The only thing that updates the downloadable installer and the auto-update feed is running the release script below.
+
+The deploy command, from a Windows checkout with `az login` completed and Developer Mode on:
+
+```powershell
+# 1. Bump "version" in package.json, PR + merge it, then tag + push:
+git checkout main && git pull
+git tag v0.X.Y && git push origin v0.X.Y
+
+# 2. Build + upload to Azure Blob Storage:
+npm run release
+```
+
+`npm run release` runs [`scripts/release.ps1`](scripts/release.ps1), which:
+
+1. Reads the version from `package.json`.
+2. Runs `npm run package` to produce the installer (~2-5 minutes).
+3. Resolves the Azure Storage key via `az` if `AZURE_STORAGE_KEY` isn't already in your environment.
+4. Uploads the installer, blockmap, and `latest.yml` to `https://stcostestimatordist.blob.core.windows.net/cost-estimator/`.
+
+Anyone with the app already installed gets the new version automatically on next launch (handled by `electron-updater` polling `latest.yml`). For new users, share the installer URL — see [`docs/release-checklist.md`](docs/release-checklist.md) for the user-facing install instructions and the full release runbook.
+
+**Why manual:** the `winax` native addon is brittle on GitHub-hosted Windows runners, so CI is intentionally limited to typecheck + JS build (see [ROADMAP.md](ROADMAP.md) "CI narrowed to skip native module compile"). When `winax` is replaced by a .NET sidecar (ROADMAP item #3), CI can take over the release pipeline.
+
+For the architecture diagram, Azure resource layout, and full distribution background, see [`docs/distribution.md`](docs/distribution.md). Code signing is a planned next step — see [`docs/code-signing-setup.md`](docs/code-signing-setup.md).
 
 ## Useful scripts
 
@@ -49,8 +77,9 @@ For the full distribution flow (Azure Blob Storage hosting, GitHub Actions relea
 | `npm run build` | Production bundle for main / preload / renderer |
 | `npm run typecheck` | Type-check both main and renderer projects |
 | `npm run rebuild` | Re-run `electron-rebuild` for `winax` after a Node/Electron upgrade |
-| `npm run package` | Build an NSIS installer locally (no publish) |
-| `npm run publish` | Build + upload to the update feed in `electron-builder.yml` |
+| `npm run package` | Build an NSIS installer locally to `dist/` (no upload) |
+| `npm run release` | Build + upload to Azure Blob Storage (the actual deploy) |
+| `npm run release:upload-only` | Re-upload existing `dist/` artifacts (for retrying a failed upload) |
 
 ## Project layout
 
