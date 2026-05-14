@@ -1,0 +1,10 @@
+# Code owners for all paths in this repository.
+#
+# Combined with the org-level ruleset on the default branch (require PR +
+# require Code Owner review), every change to the default branch needs an
+# approval from a member of @Abonmarche/admins before it can merge.
+
+* @Abonmarche/admins
+
+# CODEOWNERS owns itself: changes to this file require admin approval.
+/.github/CODEOWNERS @Abonmarche/admins
