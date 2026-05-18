@@ -49,6 +49,12 @@ export function StepperFooter({
 }: Props) {
   const activeIndex = STEPS.findIndex((s) => s.key === step);
   const inFlight = running || exporting;
+  // The CTA pill is whichever step `onAdvance` will act on:
+  //   - On `setup` / `quantify`: the next step's pill is the CTA.
+  //   - On `estimate` (last step): the current step's pill is the CTA — the
+  //     action IS this step (export). Otherwise no CTA would render at all.
+  const ctaIndex =
+    activeIndex === STEPS.length - 1 ? activeIndex : activeIndex + 1;
   const summary = buildSummary({
     step,
     itemCount,
@@ -70,12 +76,13 @@ export function StepperFooter({
         {STEPS.map((s, i) => {
           const state =
             i < activeIndex ? 'done' : i === activeIndex ? 'current' : 'next';
-          const isAdvance = i === activeIndex + 1;
+          const isCta = i === ctaIndex;
           const Icon = s.icon;
 
-          // The "next" pill that comes immediately after the active step is
-          // the primary CTA — enlarged, navy, and clickable to advance.
-          if (isAdvance) {
+          // The CTA pill — enlarged, navy, clickable. Triggers `onAdvance`,
+          // whose action depends on the workflow step (measure on setup,
+          // export on estimate).
+          if (isCta) {
             return (
               <button
                 key={s.key}
