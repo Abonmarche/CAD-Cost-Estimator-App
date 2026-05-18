@@ -63,6 +63,11 @@ function loadEnvFile(): void {
 }
 
 function createWindow(): void {
+  // `resources/` is bundled into the asar archive by electron-builder (and
+  // unpacked via the `asarUnpack` rule), so `app.getAppPath()` resolves the
+  // same way in both dev and packaged builds.
+  const iconPath = join(app.getAppPath(), 'resources', 'icon.ico');
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 820,
@@ -71,7 +76,8 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'Cost Estimator',
-    backgroundColor: '#0f1117',
+    backgroundColor: '#F8F9FA',
+    icon: iconPath,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

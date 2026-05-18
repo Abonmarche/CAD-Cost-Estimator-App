@@ -31,12 +31,33 @@ export type PayItemField =
   | 'depth'
   | 'course';
 
+/**
+ * Color accent used for the 4px left border on the pay item library card
+ * and the matching row in the workspace. Keys correspond to Tailwind
+ * `accent.*` tokens defined in `tailwind.config.js`.
+ */
+export type PresetAccent =
+  | 'sky'
+  | 'amber'
+  | 'slate'
+  | 'rose'
+  | 'charcoal'
+  | 'zinc'
+  | 'cloud';
+
 export interface PayItemPreset {
   name: string;
   objectType: ObjectType;
   measurement: MeasurementType;
   defaultLayer: string;
+  /**
+   * Legacy emoji marker. Retained for backwards compatibility with any
+   * persisted state but no longer rendered by the redesigned renderer.
+   * New presets should leave this as an empty string and rely on `accent`.
+   */
   icon: string;
+  /** Visual category accent (border-left color). Optional for safety. */
+  accent?: PresetAccent;
   /** Which attribute fields to show in the form row for this preset. */
   fields: PayItemField[];
   /** `true` for fully custom items (user sets layer from scratch). */

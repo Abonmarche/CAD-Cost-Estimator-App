@@ -1,12 +1,3 @@
-/**
- * In-app "Report a bug" / "Request enhancement" modal.
- *
- * Adapted from Abonmarche/ACI-CRM's component, restyled to the Cost
- * Estimator's dark inline-style idiom (no Tailwind, CSS variables for
- * theming). Submission goes via IPC to the main process, which holds the
- * MSAL token and POSTs to the feedback Function App.
- */
-
 import { useEffect, useRef, useState } from 'react';
 import { Bug, Lightbulb, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -107,8 +98,6 @@ export function FeedbackModal({ type, onClose }: Props) {
     }
   }
 
-  const accent = type === 'bug' ? 'var(--accent-red)' : 'var(--accent-blue)';
-
   return (
     <div
       role="dialog"
@@ -117,59 +106,16 @@ export function FeedbackModal({ type, onClose }: Props) {
       onClick={(e) => {
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        background: 'rgba(15, 17, 23, 0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-      }}
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-navy/40 p-6"
     >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-card)',
-          borderRadius: 12,
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: `${accent}18`,
-              color: accent,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Icon size={18} />
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-cloud bg-white shadow-elevated">
+        <div className="flex items-center gap-3 border-b border-cloud px-5 py-4">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cloud text-sapphire">
+            <Icon className="h-4 w-4" />
           </div>
           <h2
             id="feedback-modal-title"
-            style={{
-              flex: 1,
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
-              color: 'var(--text-primary)',
-            }}
+            className="flex-1 text-sm font-semibold text-charcoal"
           >
             {TITLE[type]}
           </h2>
@@ -178,35 +124,27 @@ export function FeedbackModal({ type, onClose }: Props) {
             onClick={onClose}
             disabled={isSubmitting}
             aria-label="Close"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              padding: 6,
-              borderRadius: 6,
-              color: 'var(--text-muted)',
-              cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              opacity: isSubmitting ? 0.5 : 1,
-            }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate transition-colors hover:bg-cloud hover:text-charcoal disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <X size={18} />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         {stage.kind === 'success' ? (
-          <div style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <CheckCircle2 size={20} style={{ color: 'var(--accent-green)', flexShrink: 0, marginTop: 2 }} />
+          <div className="p-6">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-success" />
               <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                <div className="text-sm font-semibold text-charcoal">
                   Thanks — your report has been submitted.
                 </div>
-                <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-muted)' }}>
+                <div className="mt-1 text-sm text-slate">
                   Filed as{' '}
                   <a
                     href={stage.url}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ color: 'var(--accent-blue)', textDecoration: 'underline' }}
+                    className="text-sapphire underline"
                   >
                     issue #{stage.issueNumber}
                   </a>
@@ -216,15 +154,15 @@ export function FeedbackModal({ type, onClose }: Props) {
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} style={{ padding: 20 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <form onSubmit={handleSubmit} className="p-5">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Your name">
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={isSubmitting}
                   required
-                  style={inputStyle()}
+                  className="field-input"
                 />
               </Field>
               <Field label="Your email">
@@ -234,71 +172,59 @@ export function FeedbackModal({ type, onClose }: Props) {
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isSubmitting}
                   required
-                  style={inputStyle()}
+                  className="field-input"
                 />
               </Field>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div className="mt-3">
               <Field label="Title">
                 <input
                   ref={titleRef}
                   value={title}
                   onChange={(e) => setTitle(e.target.value.slice(0, MAX_TITLE))}
-                  placeholder={type === 'bug' ? 'Short summary of what broke' : 'Short summary of your idea'}
+                  placeholder={
+                    type === 'bug'
+                      ? 'Short summary of what broke'
+                      : 'Short summary of your idea'
+                  }
                   disabled={isSubmitting}
                   required
                   maxLength={MAX_TITLE}
-                  style={inputStyle()}
+                  className="field-input"
                 />
               </Field>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div className="mt-3">
               <Field label="Description">
                 <textarea
                   value={description}
-                  onChange={(e) => setDescription(e.target.value.slice(0, MAX_DESCRIPTION))}
+                  onChange={(e) =>
+                    setDescription(e.target.value.slice(0, MAX_DESCRIPTION))
+                  }
                   placeholder={DESCRIPTION_PLACEHOLDER[type]}
                   disabled={isSubmitting}
                   required
                   maxLength={MAX_DESCRIPTION}
-                  style={{ ...inputStyle(), minHeight: 140, resize: 'vertical', fontFamily: 'inherit' }}
+                  className="field-input h-36 resize-y py-2 align-top leading-relaxed"
                 />
               </Field>
-              <div
-                style={{
-                  marginTop: 4,
-                  fontSize: 11,
-                  color: 'var(--text-dim)',
-                  textAlign: 'right',
-                }}
-              >
+              <div className="mt-1 text-right text-[11px] text-slate">
                 {description.length}/{MAX_DESCRIPTION}
               </div>
             </div>
 
             {stage.kind === 'error' && (
-              <div
-                style={{
-                  padding: 12,
-                  marginBottom: 12,
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: 8,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                }}
-              >
-                <AlertCircle size={16} style={{ color: 'var(--accent-red)', flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: 13, color: 'var(--accent-red)' }}>
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-danger" />
+                <div className="text-sm text-danger">
                   <div>{stage.message}</div>
-                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.85 }}>
+                  <div className="mt-1 text-xs opacity-80">
                     If this keeps happening, email{' '}
                     <a
                       href="mailto:ggarcia@abonmarche.com"
-                      style={{ color: 'var(--accent-red)', textDecoration: 'underline' }}
+                      className="underline"
                     >
                       ggarcia@abonmarche.com
                     </a>
@@ -308,43 +234,23 @@ export function FeedbackModal({ type, onClose }: Props) {
               </div>
             )}
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+            <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                style={{
-                  padding: '8px 14px',
-                  background: 'transparent',
-                  border: '1px solid var(--border-card)',
-                  borderRadius: 6,
-                  color: 'var(--text-secondary)',
-                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                  fontSize: 13,
-                }}
+                className="btn-secondary"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!canSubmit}
-                style={{
-                  padding: '8px 14px',
-                  background: canSubmit ? 'var(--accent-blue)' : 'var(--bg-card)',
-                  border: 'none',
-                  borderRadius: 6,
-                  color: canSubmit ? 'white' : 'var(--text-dim)',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: canSubmit ? 'pointer' : 'not-allowed',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
+                className="btn-primary"
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                     Submitting…
                   </>
                 ) : (
@@ -361,35 +267,11 @@ export function FeedbackModal({ type, onClose }: Props) {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'block' }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: 'var(--text-muted)',
-          marginBottom: 6,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-        }}
-      >
-        {label}
-      </div>
+    <label className="block">
+      <div className="field-label">{label}</div>
       {children}
     </label>
   );
-}
-
-function inputStyle(): React.CSSProperties {
-  return {
-    width: '100%',
-    padding: '8px 12px',
-    background: 'var(--bg-input)',
-    border: '1px solid var(--border-card)',
-    borderRadius: 6,
-    color: 'var(--text-primary)',
-    fontSize: 13,
-    outline: 'none',
-  };
 }
 
 function errorMessage(code: string, message?: string): string {
