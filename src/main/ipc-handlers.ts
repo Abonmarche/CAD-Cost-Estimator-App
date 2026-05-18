@@ -10,7 +10,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import type {
+  AuthActionResult,
+  AuthState,
   CostEstDbStatus,
+  FeedbackResult,
+  FeedbackSubmission,
   MeasurePayload,
   PayItemUpdate,
   PriceLookupPayload,
@@ -29,6 +33,9 @@ import { priceLookup, getCostEstDbStatus } from './pricing';
 import { exportEstimate } from './export';
 import { resolvePayItem } from './agent';
 import { manualCheckForUpdates } from './auto-updater';
+import { getAuthState, signOut } from './auth/state';
+import { startInteractiveSignIn } from './auth/flow';
+import { submitFeedback } from './feedback';
 
 export interface IpcContext {
   getMainWindow(): BrowserWindow | null;
@@ -144,6 +151,39 @@ export function registerIpcHandlers(ctx: IpcContext): void {
     IPC_CHANNELS.AppCheckForUpdates,
     async (): Promise<UpdateCheckResult> => {
       return manualCheckForUpdates();
+    },
+  );
+
+  // ─── Auth ────────────────────────────────────────────────────────────────
+
+  ipcMain.handle(IPC_CHANNELS.AuthGetState, async (): Promise<AuthState> => {
+    return getAuthState();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AuthSignIn, async (): Promise<AuthActionResult> => {
+    try {
+      await startInteractiveSignIn();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AuthSignOut, async (): Promise<AuthActionResult> => {
+    try {
+      await signOut();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
+  // ─── Feedback ────────────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    IPC_CHANNELS.FeedbackSubmit,
+    async (_event, submission: FeedbackSubmission): Promise<FeedbackResult> => {
+      return submitFeedback(submission);
     },
   );
 }

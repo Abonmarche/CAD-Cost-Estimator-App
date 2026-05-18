@@ -278,6 +278,53 @@ export interface PriceLookupResult {
   }>;
 }
 
+// ---------- Auth (MSAL) ----------
+
+export interface Account {
+  /** Entra `oid` claim — stable per user. */
+  id: string;
+  /** Display name (e.g. "Garrick Garcia"). May be empty for some accounts. */
+  name: string;
+  /** UPN / email (e.g. "ggarcia@abonmarche.com"). */
+  username: string;
+}
+
+export interface AuthState {
+  status: 'loading' | 'signedOut' | 'signedIn';
+  account: Account | null;
+  /** Most recent interactive sign-in error, if any. Cleared on next attempt. */
+  lastError?: string;
+}
+
+export interface AuthActionResult {
+  success: boolean;
+  error?: string;
+}
+
+// ---------- Feedback ----------
+
+export type FeedbackType = 'bug' | 'enhancement';
+
+export interface FeedbackSubmission {
+  type: FeedbackType;
+  title: string;
+  description: string;
+  submitterName: string;
+  submitterEmail: string;
+}
+
+export interface FeedbackSuccess {
+  ok: true;
+  issue: { number: number; url: string };
+}
+
+export interface FeedbackFailure {
+  ok: false;
+  error: { code: string; field?: string; message?: string; resetAt?: string };
+}
+
+export type FeedbackResult = FeedbackSuccess | FeedbackFailure;
+
 // ---------- App version + update check ----------
 
 /**

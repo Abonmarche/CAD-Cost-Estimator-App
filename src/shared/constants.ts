@@ -93,6 +93,15 @@ export const IPC_CHANNELS = {
   EstimateExport: 'estimate:export',
   AppGetVersion: 'app:get-version',
   AppCheckForUpdates: 'app:check-for-updates',
+
+  // Auth (MSAL, main-process owned)
+  AuthGetState: 'auth:get-state',
+  AuthSignIn: 'auth:sign-in',
+  AuthSignOut: 'auth:sign-out',
+  AuthStateChanged: 'auth:state-changed',
+
+  // Feedback (POSTs through the feedback Function App)
+  FeedbackSubmit: 'feedback:submit',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

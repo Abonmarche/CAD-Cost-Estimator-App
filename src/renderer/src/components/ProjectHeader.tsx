@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+import { Bug, Lightbulb, LogOut } from 'lucide-react';
 
 import type {
   CostEstDbStatus,
+  FeedbackType,
   MeasurementType,
   ServerStatus,
   UpdateCheckResult,
 } from '@shared/types';
 
 import { useAppVersion } from '../hooks/useAppVersion';
+import { useAuth } from '../auth/AuthContext';
 
 interface Stats {
   complete: number;
@@ -21,9 +24,10 @@ interface Props {
   mcpStatus: CostEstDbStatus;
   stats: Stats;
   unitLabels: Record<MeasurementType, string>;
+  onOpenFeedback: (type: FeedbackType) => void;
 }
 
-export function ProjectHeader({ status, mcpStatus, stats }: Props) {
+export function ProjectHeader({ status, mcpStatus, stats, onOpenFeedback }: Props) {
   return (
     <header
       style={{
@@ -100,8 +104,168 @@ export function ProjectHeader({ status, mcpStatus, stats }: Props) {
             </span>
           </>
         )}
+
+        <FeedbackButtons onOpenFeedback={onOpenFeedback} />
+        <UserBadge />
       </div>
     </header>
+  );
+}
+
+function FeedbackButtons({ onOpenFeedback }: { onOpenFeedback: (t: FeedbackType) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <IconButton title="Report a bug" onClick={() => onOpenFeedback('bug')}>
+        <Bug size={14} />
+      </IconButton>
+      <IconButton title="Request enhancement" onClick={() => onOpenFeedback('enhancement')}>
+        <Lightbulb size={14} />
+      </IconButton>
+    </div>
+  );
+}
+
+function IconButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        padding: 6,
+        borderRadius: 6,
+        color: 'var(--text-muted)',
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 0.12s ease, color 0.12s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--bg-card)';
+        e.currentTarget.style.color = 'var(--text-primary)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+        e.currentTarget.style.color = 'var(--text-muted)';
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function UserBadge() {
+  const { state, signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  if (state.status !== 'signedIn' || !state.account) return null;
+  const acc = state.account;
+  const initials = (acc.name || acc.username)
+    .split(/\s+/)
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={`${acc.name || acc.username} (${acc.username})`}
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          background: 'var(--abonmarche-navy)',
+          color: 'var(--text-primary)',
+          border: '1px solid var(--border-card)',
+          fontSize: 11,
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+        }}
+      >
+        {initials || '?'}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            right: 0,
+            minWidth: 220,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-card)',
+            borderRadius: 8,
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
+            zIndex: 100,
+            padding: 8,
+          }}
+        >
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)', marginBottom: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {acc.name || acc.username}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{acc.username}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              void signOut();
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '8px 10px',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 6,
+              color: 'var(--text-secondary)',
+              fontSize: 12,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-card)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            <LogOut size={14} />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

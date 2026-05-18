@@ -28,3 +28,8 @@ yarn-error.log*
 .claude/settings.local.json
 .claude/ruleset.json
 .claude/worktrees/
+
+# Azure provisioning state (output of scripts/provision-azure.ps1).
+# Contains tenant/subscription/app IDs — not secrets, but local state.
+# Phase 7 reads from here to bake values into the installer.
+.azure/

@@ -1,0 +1,222 @@
+name: Claude Auto-Fix
+
+# Auto-implement small, safe fixes as draft PRs when an issue lands in
+# a specific label combination. Companion to triage.yml — the triage
+# workflow applies labels, and this workflow fires when those labels
+# are eligible for automated fixing.
+#
+# CUSTOMIZE before using:
+# - Eligibility filter (line ~35) — adjust to your project's label
+#   scheme. The default fires on:
+#     effort:atom OR effort:pure
+#     AND triage:actionable
+#     AND risk:safe-zone
+#   Modify the labels and combination to match your taxonomy.
+# - Hard-stops list in the prompt — list paths Claude must NEVER touch.
+# - Verification commands — replace `npm run typecheck && npm test`
+#   with whatever your project uses (cargo test, pytest, etc.).
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write          # push the auto-fix branch
+  issues: write            # comment back on the source issue
+  pull-requests: write     # open the draft PR
+  id-token: write          # REQUIRED — mints Claude App installation token via OIDC
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  autofix:
+    # The label JUST added must be one of the auto-fix-eligible effort
+    # tiers, AND the issue must already have triage:actionable +
+    # risk:safe-zone. Re-checking the full label set on every `labeled`
+    # event prevents firing N times as triage applies labels in sequence.
+    if: |
+      (github.event.label.name == 'effort:atom' || github.event.label.name == 'effort:pure') &&
+      contains(github.event.issue.labels.*.name, 'triage:actionable') &&
+      contains(github.event.issue.labels.*.name, 'risk:safe-zone')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # cache: 'npm'   # uncomment if the repo has package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "claude-autofix[bot]"
+          git config user.email "claude-autofix@users.noreply.github.com"
+
+      - name: Run Claude auto-fix
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # NO github_token line. With the Claude App installed, the
+          # action mints an installation token via OIDC. The PR-create
+          # call below uses that App token, so the auto-fix PR is opened
+          # by claude[bot] and DOES trigger downstream PR-triggered
+          # workflows (CI, deploy previews) — unlike PRs opened via
+          # GITHUB_TOKEN, which GitHub silently blocks from triggering
+          # subsequent workflows.
+          # The triage workflow applies labels as claude[bot] (via the
+          # Claude App's installation token), so the issues.labeled event
+          # that triggers this workflow is bot-originated. Allowlist
+          # claude[bot] specifically (not '*') so external Apps that
+          # might also label issues can't invoke this workflow.
+          allowed_bots: 'claude[bot]'
+          claude_args: |
+            --max-turns 30
+            --model claude-opus-4-7
+            --effort high
+            --allowedTools "Bash(gh:*),Bash(git:*),Bash(npm ci),Bash(npm test),Bash(npm run typecheck),Read,Grep,Glob,Edit,Write"
+          prompt: |
+            You are the auto-fix agent for <YOUR PROJECT>. Issue
+            #${{ github.event.issue.number }} was just classified as
+            ready for an automatic PR by the triage agent.
+
+            ISSUE
+            - Number: #${{ github.event.issue.number }}
+            - Title: ${{ github.event.issue.title }}
+            - Effort: ${{ github.event.label.name }}
+            - URL: ${{ github.event.issue.html_url }}
+
+            =====================================================================
+            STEP 1 — PRECONDITIONS
+            =====================================================================
+            Run:
+              gh pr list --search "issue:${{ github.event.issue.number }}" --state all --json number,headRefName
+
+            If a PR already references this issue, comment:
+              "Auto-fix skipped — PR #N already exists."
+            ...and exit successfully without making changes.
+
+            Read the full issue + the triage comment:
+              gh issue view ${{ github.event.issue.number }} --comments
+
+            The triage comment lists the likely files to touch and the
+            test tier required. Trust that classification, but verify
+            the files exist before editing.
+
+            =====================================================================
+            STEP 2 — IMPLEMENT THE SMALLEST CHANGE THAT FIXES THE ISSUE
+            =====================================================================
+            Create a branch from main:
+              git checkout -b auto-fix/issue-${{ github.event.issue.number }}
+
+            Implement the fix:
+              - For effort:atom: single-file edit, no new tests required.
+              - For effort:pure: edit the pure helper AND add ONE unit
+                test. Follow patterns in existing test files.
+
+            Stage your changes:
+              git add -A
+
+            =====================================================================
+            STEP 3 — VERIFY LOCALLY BEFORE PUSHING
+            =====================================================================
+            Run (CUSTOMIZE for your project):
+              npm run typecheck
+              npm test
+
+            If EITHER fails:
+              - Do NOT push.
+              - Comment on the issue with the failing output (tail the
+                last ~30 lines, redact anything that looks like a secret).
+              - Add the label `risk:human-only` (Claude got it wrong).
+              - Remove `risk:safe-zone`.
+              - Exit successfully (failed verification is not a workflow
+                error — the human takes over from here).
+
+            If both pass: continue.
+
+            =====================================================================
+            STEP 4 — COMMIT, PUSH, OPEN DRAFT PR
+            =====================================================================
+            Commit with a conventional-commits style message:
+              git commit -m "<type>(<area>): <short description>
+
+              Closes #${{ github.event.issue.number }}
+
+              Auto-generated by claude-autofix workflow."
+
+            Push:
+              git push --set-upstream origin auto-fix/issue-${{ github.event.issue.number }}
+
+            Open as DRAFT (not ready for review):
+              gh pr create --draft \
+                --base main \
+                --head auto-fix/issue-${{ github.event.issue.number }} \
+                --title "[auto-triage] <fix|feat>: <short description>" \
+                --body "<see structure below>"
+
+            PR body structure (Markdown):
+
+              Closes #${{ github.event.issue.number }}
+
+              ## Original feedback
+              > <quote of the issue body, blockquoted>
+
+              ## What this changes
+              - <bullet 1>
+              - <bullet 2>
+
+              ## Verification
+              - typecheck: passed
+              - tests: passed (N tests)
+              - Diff size: X lines across Y file(s)
+
+              ## Reviewer checklist
+              - [ ] Change matches the original feedback intent
+              - [ ] Test coverage is appropriate
+              - [ ] No surprises — only the intended files changed
+
+              > Auto-generated by claude-autofix. Opened as draft for
+              > human review.
+
+            =====================================================================
+            STEP 5 — LINK BACK TO THE ISSUE
+            =====================================================================
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "Draft PR opened: #<pr-number>."
+
+            =====================================================================
+            HARD CONSTRAINTS — CUSTOMIZE THIS LIST FOR YOUR REPO
+            =====================================================================
+            DO NOT touch any of these paths:
+              - <CRITICAL PATH 1, e.g. src/auth/**>
+              - <CRITICAL PATH 2, e.g. database schema files>
+              - .github/workflows/**
+              - package.json dependencies / devDependencies
+              - package-lock.json (other than lockfile noise from npm ci,
+                which you are not running here — never edit it directly)
+
+            If the actual fix would require touching any of the above:
+              - Revert your branch:
+                  git checkout main
+                  git branch -D auto-fix/issue-${{ github.event.issue.number }}
+              - Comment on the issue: "Auto-fix aborted — proper fix
+                would touch <path>, which is in risk:human-only territory."
+              - Add label risk:human-only
+              - Remove label risk:safe-zone
+              - Exit successfully without pushing.
+
+            If your diff exceeds 75 lines OR touches more than 2 source
+            files (excluding any test file for effort:pure):
+              - Same procedure as above, but add label effort:component
+                and remove the current effort:* label.
+
+            DO NOT add new dependencies. If a fix seems to require one,
+            abort with a comment explaining what would be needed.
+
+            DO NOT mark the PR as ready for review. It MUST be a draft.

@@ -23,9 +23,11 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",
+    "@azure/msal-node": "^5.2.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
+    "lucide-react": "^1.16.0",
     "winax": "^3.4.2",
     "zod": "^4.0.0"
   },
