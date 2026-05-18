@@ -73,6 +73,13 @@ export async function* resolvePayItem(
   const prompt = buildResolutionPrompt(item, userInput);
   const systemPrompt = buildSystemPrompt();
 
+  // The SDK spawns the Claude Code CLI as a subprocess. If that subprocess
+  // exits non-zero, the SDK throws "Claude Code process exited with code N"
+  // — but the real cause lives in its stderr. Buffer the tail so we can
+  // surface something actionable to the user instead of an opaque message.
+  const stderrTail: string[] = [];
+  const STDERR_TAIL_MAX = 40;
+
   try {
     const autocadServer = await getAutocadServer();
     for await (const msg of query({
@@ -92,6 +99,19 @@ export async function* resolvePayItem(
           ...COSTESTDB_TOOL_NAMES,
         ],
         maxTurns: 10,
+        // `debug: true` makes the CLI write verbose diagnostics to stderr.
+        // Cheap to enable — these only surface when something goes wrong.
+        debug: true,
+        stderr: (data: string) => {
+          // Mirror to the main-process console so dev / packaged-app logs
+          // capture the full stream, then keep a bounded tail in memory.
+          console.error('[agent stderr]', data.trimEnd());
+          for (const line of data.split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            stderrTail.push(line);
+            if (stderrTail.length > STDERR_TAIL_MAX) stderrTail.shift();
+          }
+        },
         env: {
           ...process.env,
           // Substitute the MSAL token for the API key. The underlying
@@ -109,10 +129,17 @@ export async function* resolvePayItem(
       if (converted) yield converted;
     }
   } catch (e) {
+    const baseMessage = (e as Error).message;
+    // For the opaque "process exited with code N" case, splice in the last
+    // few stderr lines so the renderer chat has something to act on.
+    const isSubprocessExit = /process exited with code/i.test(baseMessage);
+    const tailText = stderrTail.length
+      ? '\n\nLast diagnostics:\n' + stderrTail.slice(-8).join('\n')
+      : '';
     yield {
       itemId,
       kind: 'error',
-      text: (e as Error).message,
+      text: isSubprocessExit && tailText ? baseMessage + tailText : baseMessage,
     };
   }
 }
