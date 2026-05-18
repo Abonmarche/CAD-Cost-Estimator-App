@@ -1,0 +1,115 @@
+name: Deploy LLM Proxy Function
+
+# CI/CD for the LLM proxy Azure Function App. Auth via GitHub OIDC →
+# Azure AD federated credential on cost-estimator-llm-deploy.
+# No long-lived secret stored in GitHub.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/llm-proxy/**'
+      - '.github/workflows/function-deploy-llm.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'functions/llm-proxy/**'
+      - '.github/workflows/function-deploy-llm.yml'
+  workflow_dispatch:
+
+env:
+  FUNCTION_APP_NAME: func-cost-estimator-llm
+  RESOURCE_GROUP: rg-cost-estimator-app
+  NODE_VERSION: '22'
+  WORKDIR: functions/llm-proxy
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.WORKDIR }}/package-lock.json
+
+      - name: Install dependencies (with dev)
+        working-directory: ${{ env.WORKDIR }}
+        run: npm ci
+
+      - name: TypeScript typecheck
+        working-directory: ${{ env.WORKDIR }}
+        run: npm run typecheck
+
+      - name: TypeScript build
+        working-directory: ${{ env.WORKDIR }}
+        run: npm run build
+
+      # Reinstall prod-only deps so the deploy artifact doesn't carry the
+      # vitest + typescript build tooling.
+      - name: Prune to production dependencies
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+
+      - name: Zip deploy package
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          zip -qr ../../llm-proxy.zip \
+            host.json package.json package-lock.json dist node_modules
+
+      - name: Upload build artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-proxy
+          path: llm-proxy.zip
+          retention-days: 7
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: llm-proxy
+
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_LLM }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Flex Consumption Function App
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: llm-proxy.zip
+          sku: flexconsumption
+
+      - name: Verify function is registered after deploy
+        run: |
+          MASTER=$(az functionapp keys list -n "${FUNCTION_APP_NAME}" -g "${RESOURCE_GROUP}" --query masterKey -o tsv)
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            names=$(curl -sf "https://${FUNCTION_APP_NAME}.azurewebsites.net/admin/functions?code=${MASTER}" | \
+                    grep -oE '"name":"[^"]+"' | head -3 | tr -d '\n' || true)
+            if echo "$names" | grep -q proxy; then
+              echo "proxy is live: $names"
+              exit 0
+            fi
+            echo "attempt $i: function not yet registered, waiting 10s..."
+            sleep 10
+          done
+          echo "Function failed to register within 2 min after deploy" >&2
+          exit 1

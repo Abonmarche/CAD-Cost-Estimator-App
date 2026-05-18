@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { EstimateExport, PayItem } from '@shared/types';
+import type { EstimateExport, FeedbackType, PayItem } from '@shared/types';
 import { MEASUREMENT_UNITS } from '@shared/constants';
 
 import { ProjectHeader } from './components/ProjectHeader';
@@ -8,14 +8,32 @@ import { PresetPicker } from './components/PresetPicker';
 import { PayItemList } from './components/PayItemList';
 import { ActionBar } from './components/ActionBar';
 import { EmptyState } from './components/EmptyState';
+import { FeedbackModal } from './components/FeedbackModal';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import { SignInScreen } from './auth/SignInScreen';
 import { useAutocadStatus } from './hooks/useAutocadStatus';
 import { useCostEstDbStatus } from './hooks/useCostEstDbStatus';
 import { usePayItems } from './hooks/usePayItems';
 import { useEstimate } from './hooks/useEstimate';
 
 export function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
+  );
+}
+
+function AppShell() {
+  const { state } = useAuth();
+  if (state.status !== 'signedIn') return <SignInScreen />;
+  return <AppMain />;
+}
+
+function AppMain() {
   const [projectName, setProjectName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(true);
+  const [feedbackOpen, setFeedbackOpen] = useState<FeedbackType | null>(null);
 
   const status = useAutocadStatus();
   const mcpStatus = useCostEstDbStatus();
@@ -86,7 +104,12 @@ export function App() {
         mcpStatus={mcpStatus}
         stats={stats}
         unitLabels={MEASUREMENT_UNITS}
+        onOpenFeedback={setFeedbackOpen}
       />
+
+      {feedbackOpen && (
+        <FeedbackModal type={feedbackOpen} onClose={() => setFeedbackOpen(null)} />
+      )}
 
       <main
         style={{

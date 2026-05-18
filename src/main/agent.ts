@@ -17,6 +17,7 @@ import type { ResolveMessage, ResolvePayload } from '@shared/types';
 import { getAutocadServer } from './tools/autocad/server';
 import { getCostEstDbConfig, COSTESTDB_TOOL_NAMES } from './tools/costestdb';
 import { buildPayItemDescription } from '@shared/presets';
+import { getApiToken } from './auth/tokens';
 
 /**
  * Drive the resolution agent for a single pay item. Async-iterator so the
@@ -42,12 +43,29 @@ export async function* resolvePayItem(
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  // Fetch a fresh MSAL access token scoped for the LLM API. The proxy
+  // (func-cost-estimator-llm) validates this token before forwarding to
+  // api.anthropic.com with the real key from Key Vault. The SDK sends our
+  // token in the x-api-key header (its standard auth path); the proxy
+  // accepts it from either x-api-key or Authorization.
+  let llmToken: string;
+  try {
+    llmToken = await getApiToken('llm');
+  } catch (e) {
     yield {
       itemId,
       kind: 'error',
-      text:
-        'ANTHROPIC_API_KEY is not set. Add it to your .env file to enable the Estimator Assistant.',
+      text: `Could not acquire LLM access token — please sign out and back in. (${(e as Error).message})`,
+    };
+    return;
+  }
+
+  const proxyUrl = process.env.LLM_PROXY_URL;
+  if (!proxyUrl) {
+    yield {
+      itemId,
+      kind: 'error',
+      text: 'LLM_PROXY_URL is not baked into this build.',
     };
     return;
   }
@@ -74,6 +92,17 @@ export async function* resolvePayItem(
           ...COSTESTDB_TOOL_NAMES,
         ],
         maxTurns: 10,
+        env: {
+          ...process.env,
+          // Substitute the MSAL token for the API key. The underlying
+          // @anthropic-ai/sdk reads ANTHROPIC_API_KEY and sends it as
+          // `x-api-key`; the proxy validates it as a JWT.
+          ANTHROPIC_API_KEY: llmToken,
+          // Redirect the SDK's base URL to our proxy. The proxy's catch-all
+          // route is `/v1/{*path}`, so the SDK's normal /v1/messages call
+          // lands at func-cost-estimator-llm.azurewebsites.net/v1/messages.
+          ANTHROPIC_BASE_URL: proxyUrl,
+        },
       },
     })) {
       const converted = convertSdkMessage(itemId, msg);

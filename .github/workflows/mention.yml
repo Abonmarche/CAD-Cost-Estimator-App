@@ -1,0 +1,142 @@
+name: Claude Mention
+
+# Manual on-ramp. Tag @claude in any issue body, issue comment, or PR
+# review comment to invoke Claude on demand. Useful for:
+#   - Re-triaging an existing issue ("@claude triage this")
+#   - Codebase Q&A ("@claude how does the duplicate detection work?")
+#   - Reclassifying a bad triage call ("@claude this isn't a duplicate")
+#   - Steering an in-flight auto-fix ("@claude please use a Map instead")
+#
+# CUSTOMIZE before using:
+# - Author-association guard (line ~50) — keep restrictive on public
+#   repos to prevent random commenters from triggering paid Anthropic
+#   spend. The default OWNER/MEMBER/COLLABORATOR is a safe baseline.
+# - Hard-stops list in the prompt (look for `DO NOT modify`).
+# - Project-context references (replace `<YOUR PROJECT>` and
+#   `<PATH TO PROJECT CONVENTIONS>` placeholders).
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write          # Claude may push branches if asked to fix
+  issues: write            # apply labels, comment, close
+  pull-requests: write     # open draft PRs
+  id-token: write          # REQUIRED — mints Claude App installation token via OIDC
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  claude:
+    # Three guards layered to prevent abuse:
+    #   1. Mention guard — body must contain @claude
+    #   2. Author-association guard — only repo OWNER/MEMBER/COLLABORATOR
+    #   3. Bot guard — never respond to other bots
+    if: |
+      (
+        (github.event_name == 'issue_comment'              && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'issues'                     && contains(github.event.issue.body,   '@claude'))
+      ) &&
+      contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'),
+               github.event.comment.author_association || github.event.issue.author_association) &&
+      github.event.sender.type == 'User'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # cache: 'npm'   # uncomment if the repo has package-lock.json
+
+      # CUSTOMIZE: drop this step if Claude won't run npm/build/tests
+      # - name: Install dependencies
+      #   run: npm ci
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "claude-mention[bot]"
+          git config user.email "claude-mention@users.noreply.github.com"
+
+      - name: Run Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # NO github_token line — see SKILL.md for why.
+          # If this workflow chains into autofix.yml (the typical pattern,
+          # where @claude applies labels and autofix fires on the
+          # issues.labeled event), keep this allowlist narrow so the
+          # autofix workflow only runs for claude[bot] actor identity.
+          allowed_bots: 'claude[bot]'
+          claude_args: |
+            --max-turns 30
+            --model claude-haiku-4-5
+            --effort high
+            --allowedTools "Bash(gh:*),Bash(git:*),Bash(npm ci),Bash(npm test),Bash(npm run typecheck),Read,Grep,Glob,Edit,Write"
+          prompt: |
+            You were tagged with @claude on a <YOUR PROJECT> issue or PR.
+            Read the comment / issue body that mentioned you, identify
+            what's being asked, and act appropriately.
+
+            =====================================================================
+            COMMON REQUEST PATTERNS
+            =====================================================================
+
+            "@claude triage this":
+              Run the same procedure as the triage workflow. Read the
+              issue, run a duplicate check, apply labels along the
+              project's classification axes. Apply effort:* LAST.
+              Post an assessment comment.
+
+            "@claude fix this" / "@claude please implement":
+              Only proceed if the issue already has the eligible label
+              set (e.g. triage:actionable + risk:safe-zone +
+              effort:atom/pure). If those aren't present, run triage
+              first.
+              Respect the hard-stops list (see below). For risk:human-only
+              territory, post a proposed approach instead of implementing.
+
+            "@claude what does X do?" / "@claude how does Y work?":
+              Read the relevant code, answer in a comment with file:line
+              references. Be concise.
+
+            "@claude re-classify" / "@claude this isn't actually a duplicate":
+              Re-read the issue and existing labels. Adjust with
+              gh issue edit --add-label / --remove-label.
+              Post a comment explaining the reclassification.
+
+            =====================================================================
+            HARD STOPS (CUSTOMIZE for your repo)
+            =====================================================================
+            DO NOT modify any of these paths under any circumstance:
+              - <CRITICAL PATH 1, e.g. src/auth/**>
+              - <CRITICAL PATH 2, e.g. database migration files>
+              - .github/workflows/**
+              - package.json dependencies / devDependencies
+
+            If a request would require touching any of the above, comment
+            with what would need to happen and why a human should do it.
+
+            DO NOT add new dependencies, ever.
+
+            DO NOT mark a draft PR as ready for review. Humans do that.
+
+            =====================================================================
+            CONTEXT
+            =====================================================================
+            Read <PATH TO PROJECT CONVENTIONS, e.g. CLAUDE.md or README.md>
+            for project conventions, non-goals, and architecture.
+
+            For triage-related actions, applying the right labels will
+            chain into the autofix workflow automatically (if installed).
+            You don't need to do anything special to "trigger autofix" —
+            just apply the right labels.

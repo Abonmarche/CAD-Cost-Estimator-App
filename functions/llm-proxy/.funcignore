@@ -1,0 +1,9 @@
+.git*
+.vscode
+local.settings.json
+test
+*.test.ts
+src/**/*.ts
+tsconfig.json
+vitest.config.ts
+.funcignore

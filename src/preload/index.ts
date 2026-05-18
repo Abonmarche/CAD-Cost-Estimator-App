@@ -8,8 +8,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type {
+  AuthActionResult,
+  AuthState,
   CostEstDbStatus,
   EstimateExport,
+  FeedbackResult,
+  FeedbackSubmission,
   MeasurePayload,
   PayItemUpdate,
   PriceLookupPayload,
@@ -24,6 +28,17 @@ import type {
 import { IPC_CHANNELS } from '../shared/constants';
 
 type Unsubscribe = () => void;
+
+export interface AuthApi {
+  getState(): Promise<AuthState>;
+  signIn(): Promise<AuthActionResult>;
+  signOut(): Promise<AuthActionResult>;
+  onStateChange(cb: (state: AuthState) => void): Unsubscribe;
+}
+
+export interface FeedbackApi {
+  submit(submission: FeedbackSubmission): Promise<FeedbackResult>;
+}
 
 export interface CostEstimatorApi {
   getAutocadStatus(): Promise<ServerStatus>;
@@ -50,6 +65,8 @@ export interface CostEstimatorApi {
   >;
   getAppVersion(): Promise<string>;
   checkForUpdates(): Promise<UpdateCheckResult>;
+  auth: AuthApi;
+  feedback: FeedbackApi;
 }
 
 const api: CostEstimatorApi = {
@@ -91,6 +108,25 @@ const api: CostEstimatorApi = {
   getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.AppGetVersion),
 
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.AppCheckForUpdates),
+
+  auth: {
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.AuthGetState),
+    signIn: () => ipcRenderer.invoke(IPC_CHANNELS.AuthSignIn),
+    signOut: () => ipcRenderer.invoke(IPC_CHANNELS.AuthSignOut),
+    onStateChange: (cb) => {
+      const handler = (_e: Electron.IpcRendererEvent, state: unknown) => {
+        cb(state as AuthState);
+      };
+      ipcRenderer.on(IPC_CHANNELS.AuthStateChanged, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC_CHANNELS.AuthStateChanged, handler);
+    },
+  },
+
+  feedback: {
+    submit: (submission) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FeedbackSubmit, submission),
+  },
 };
 
 contextBridge.exposeInMainWorld('costEstimator', api);

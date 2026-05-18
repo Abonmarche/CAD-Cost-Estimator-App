@@ -1,0 +1,26 @@
+{
+  "name": "cost-estimator-llm-proxy",
+  "version": "0.1.0",
+  "description": "Azure Function App that proxies api.anthropic.com calls for the Cost Estimator desktop app. Validates MSAL JWTs from the desktop client, reads the Anthropic API key from Key Vault via Managed Identity, and forwards/streams the request.",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/functions/proxy.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.7.0",
+    "@azure/identity": "^4.5.0",
+    "@azure/keyvault-secrets": "^4.9.0",
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

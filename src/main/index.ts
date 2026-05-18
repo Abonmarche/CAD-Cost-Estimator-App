@@ -1,10 +1,10 @@
 /**
  * Electron main entry point.
  *
- * Boots the single renderer window, wires up IPC, and initialises the
- * AutoCAD + CostEstDB tool plumbing. We don't touch COM here — everything
- * deferred until the first tool call so the app launches cleanly even if
- * AutoCAD isn't running yet.
+ * Boots the single renderer window, wires up IPC, boots MSAL auth, and
+ * handles the custom protocol callback for the MSAL sign-in flow. We
+ * don't touch COM here — everything deferred until the first tool call
+ * so the app launches cleanly even if AutoCAD isn't running yet.
  */
 
 import { app, BrowserWindow, shell } from 'electron';
@@ -14,6 +14,8 @@ import { existsSync } from 'node:fs';
 import { injectBakedEnv } from './baked-env';
 import { registerIpcHandlers } from './ipc-handlers';
 import { initAutoUpdater } from './auto-updater';
+import { handleAuthCallback } from './auth/flow';
+import { bootAuthState } from './auth/state';
 
 // Run BEFORE anything else touches process.env or imports an SDK that
 // reads from it. ES module imports hoist, so this still runs after the
@@ -22,6 +24,10 @@ import { initAutoUpdater } from './auto-updater';
 injectBakedEnv();
 
 const isDev = !app.isPackaged;
+
+// MSAL redirect protocol. Must match the public-client redirect URI on
+// the cost-estimator-desktop app registration in Entra.
+const MSAL_PROTOCOL = 'msal-cost-estimator';
 
 // Preserve a handle so we can address the window from IPC handlers (for
 // streaming measurement updates).
@@ -96,16 +102,85 @@ function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
-  loadEnvFile();
-  registerIpcHandlers({ getMainWindow });
-  createWindow();
-  initAutoUpdater(getMainWindow);
+/**
+ * Find any msal-cost-estimator:// URL in a list of command-line args (the
+ * launching shell appends the URL as a positional arg on Windows).
+ */
+function findAuthCallback(argv: string[]): string | null {
+  return argv.find((a) => a.startsWith(`${MSAL_PROTOCOL}://`)) ?? null;
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// ─── Single-instance + protocol registration ────────────────────────────────
+
+// Acquire the lock first. A second instance launched by the OS to handle
+// a protocol URL will fail this lock, fire `second-instance` on the
+// primary, and exit. Without this, the protocol callback opens a new app
+// window every time — and the original sign-in flow's pending promise
+// stays unresolved.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  // Register the custom protocol. Dev/packaged differ — when running
+  // unpackaged, electron.exe is the launcher and needs the full path +
+  // the script's path as an arg so the OS knows which renderer to spawn.
+  if (process.platform === 'win32' && process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(MSAL_PROTOCOL, process.execPath, [
+        join(__dirname, '..', '..'),
+      ]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient(MSAL_PROTOCOL);
+  }
+
+  // Windows/Linux: protocol callback arrives as a second-instance event.
+  app.on('second-instance', (_event, argv) => {
+    const url = findAuthCallback(argv);
+    if (url) {
+      void handleAuthCallback(url);
+    }
+    // Focus the existing window so the user sees the result.
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
-});
+
+  // macOS: protocol callback arrives as an open-url event. Harmless on
+  // other platforms — registration just never fires.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    if (url.startsWith(`${MSAL_PROTOCOL}://`)) {
+      void handleAuthCallback(url);
+    }
+  });
+
+  app.whenReady().then(() => {
+    loadEnvFile();
+    registerIpcHandlers({ getMainWindow });
+    createWindow();
+    initAutoUpdater(getMainWindow);
+
+    // Boot MSAL: inspects the persistent cache and broadcasts the initial
+    // auth state to the renderer once the window has a webContents.
+    // Errors don't block boot — the renderer's SignInScreen handles
+    // signedOut state.
+    void bootAuthState();
+
+    // If the app was launched by a protocol click (Windows passes the URL
+    // as a positional arg), process it now. Common only when the app is
+    // not already running.
+    const launchUrl = findAuthCallback(process.argv);
+    if (launchUrl) {
+      void handleAuthCallback(launchUrl);
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   // Keep macOS convention even though we target Windows — harmless.

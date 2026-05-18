@@ -1,0 +1,175 @@
+name: Claude Triage
+
+# Auto-triage workflow. Fires when a new issue is opened (optionally
+# filtered by a label like `user-reported`) and applies a structured
+# label set so downstream automation (autofix, routing) can react.
+#
+# CUSTOMIZE before using:
+# - The `if:` filter (line ~30) — replace `user-reported` with whatever
+#   label gates triage in your repo, or remove the filter entirely if
+#   every newly-opened issue should be triaged.
+# - The classification scheme in the prompt (replace the example
+#   triage / risk / effort / area axes with whatever taxonomy makes
+#   sense for your project).
+# - Project context references in the prompt (`<your project name>`,
+#   `<path to project conventions doc>`, etc.).
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write          # REQUIRED — mints Claude App installation token via OIDC
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  triage:
+    # CUSTOMIZE: optional label filter. Remove this line to triage every
+    # newly-opened issue.
+    if: contains(github.event.issue.labels.*.name, 'user-reported')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # cache: 'npm'   # uncomment if the repo has package-lock.json
+
+      # CUSTOMIZE: only needed if Claude has to read TypeScript types
+      # or run scripts during triage. Drop this step for read-only
+      # markdown / config repos.
+      # - name: Install dependencies
+      #   run: npm ci
+
+      - name: Run Claude triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # NO github_token line — see SKILL.md for why. With the Claude
+          # GitHub App installed on this repo, the action mints an
+          # installation token via OIDC so comments post as claude[bot].
+          # CUSTOMIZE: if the issues you're triaging are created by a bot
+          # (e.g. an in-app feedback Function App that posts as your
+          # feedback GitHub App), allowlist that bot below. Without this,
+          # the action blocks all bot-triggered runs by default. Use the
+          # bot's slug + '[bot]' suffix. Example for the feedback-loop
+          # pattern: 'aci-crm-feedback[bot]'. NEVER use '*' — that opens
+          # the door to any external App invoking the workflow.
+          # allowed_bots: '<your-feedback-bot>[bot]'
+          claude_args: |
+            --model claude-haiku-4-5
+            --effort high
+            --allowedTools "Bash(gh:*),Read,Grep,Glob"
+          prompt: |
+            You are the triage agent for <YOUR PROJECT NAME>. A new issue
+            was just opened.
+
+            ISSUE
+            - Number: #${{ github.event.issue.number }}
+            - Title: ${{ github.event.issue.title }}
+            - Author: ${{ github.event.issue.user.login }}
+            - URL: ${{ github.event.issue.html_url }}
+
+            Read the full issue body via `gh issue view ${{ github.event.issue.number }}`.
+            Read <PATH TO PROJECT CONVENTIONS> (e.g. CLAUDE.md, README.md,
+            ARCHITECTURE.md) for project context.
+
+            =====================================================================
+            STEP 1 — DUPLICATE CHECK
+            =====================================================================
+            Run:
+              gh issue list --label <FILTER LABEL OR REMOVE> --state all --limit 50 \
+                --json number,title,body,state,createdAt,labels
+
+            Compare semantically (not keyword-only). If you find a strong
+            match (same root cause, same enhancement request), this is a
+            duplicate.
+
+            =====================================================================
+            STEP 2 — CLASSIFY (CUSTOMIZE THESE AXES FOR YOUR PROJECT)
+            =====================================================================
+
+            Triage outcome — apply EXACTLY ONE:
+              triage:actionable    Clear, real, in-scope, enough info to start
+              triage:needs-info    Too vague; needs repro / details
+              triage:duplicate     Matches an existing issue
+              triage:out-of-scope  Violates a documented project non-goal
+              triage:not-a-bug     Submitter misunderstood; existing UI/docs
+                                   already covers this
+
+            Risk zone — apply only if triage:actionable; pick ONE:
+              risk:safe-zone     Touches only <safe paths for your project>
+              risk:human-only    Touches <hard-stop paths for your project>
+              risk:design-call   Subjective: copy, color, UX flow
+
+            Effort — apply only if triage:actionable; pick ONE; APPLY THIS
+            LABEL LAST (autofix workflow triggers on it):
+              effort:atom         Single-file edit, no behavior change
+              effort:pure         Pure-function change + 1 unit test
+              effort:component    Component-level change
+              effort:integration  Crosses module boundaries
+              effort:schema       Schema change required
+
+            Area — apply at most one if triage:actionable:
+              area:<your-domain-1>, area:<your-domain-2>, ...
+
+            =====================================================================
+            STEP 3 — APPLY LABELS (in this order)
+            =====================================================================
+            Use `gh issue edit ${{ github.event.issue.number }} --add-label "<name>"`.
+            Order matters — apply effort:* LAST so the autofix-trigger
+            label lands at the end:
+              1. area:* (if applicable)
+              2. triage:* outcome
+              3. risk:* (if actionable)
+              4. effort:* (if actionable) — LAST
+
+            =====================================================================
+            STEP 4 — POST ONE COMMENT
+            =====================================================================
+            Use `gh issue comment ${{ github.event.issue.number }} --body "<text>"`.
+            Structure as Markdown:
+
+              **Auto-triage assessment**
+
+              <2-3 sentence summary>
+
+              | Axis | Classification |
+              |---|---|
+              | Triage | `triage:...` |
+              | Risk   | `risk:...` (or N/A) |
+              | Effort | `effort:...` (or N/A) |
+              | Area   | `area:...` (or N/A) |
+
+              <One of the following based on outcome:>
+              - actionable + safe-zone + atom/pure: "Auto-fix is queued."
+              - actionable + (anything else): "Candidate for human review.
+                Likely files: <list>. Suggested approach: <paragraph>."
+              - needs-info: "Could you share: 1) ..., 2) ..., 3) ...?"
+              - duplicate: "Duplicate of #N. Closing — follow #N for updates."
+              - out-of-scope: "Intersects project non-goal: <quoted line>. Closing."
+              - not-a-bug: "I think you may be looking for <existing thing>."
+
+            =====================================================================
+            STEP 5 — CLOSE IF APPROPRIATE
+            =====================================================================
+            For triage:duplicate or triage:out-of-scope:
+              gh issue close ${{ github.event.issue.number }} --reason "not planned"
+
+            All other outcomes: leave the issue open.
+
+            =====================================================================
+            HARD CONSTRAINTS
+            =====================================================================
+            - DO NOT modify any files. This is triage only.
+            - DO NOT apply more than one label per axis.
+            - DO NOT apply effort:* or risk:* to non-actionable issues.
+            - DO NOT close anything other than duplicates and out-of-scope.
+            - When ambiguous, prefer triage:needs-info over guessing.
