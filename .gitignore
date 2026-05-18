@@ -33,3 +33,6 @@ yarn-error.log*
 # Contains tenant/subscription/app IDs — not secrets, but local state.
 # Phase 7 reads from here to bake values into the installer.
 .azure/
+
+# Drop-zone for icon refreshes — the actual icons live in resources/.
+cost-estimator-icons.zip

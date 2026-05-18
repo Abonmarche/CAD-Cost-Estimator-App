@@ -1,6 +1,13 @@
 import { useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Sparkles,
+  X,
+} from 'lucide-react';
 
-import type { PayItem, PayItemStatus } from '@shared/types';
+import type { PayItem, PayItemStatus, PresetAccent } from '@shared/types';
 import {
   MEASUREMENT_UNITS,
   OBJECT_TYPE_OPTIONS,
@@ -15,40 +22,14 @@ interface Props {
   onSetManual(id: string, quantity: number, notes?: string): void;
 }
 
-const STATUS_STYLES: Record<
-  PayItemStatus,
-  { bg: string; border: string; dot: string; label: string }
-> = {
-  pending: {
-    bg: '#2a2d35',
-    border: '#3d414b',
-    dot: '#6b7280',
-    label: 'Pending',
-  },
-  processing: {
-    bg: '#1e2a3a',
-    border: '#2563eb44',
-    dot: '#3b82f6',
-    label: 'Processing...',
-  },
-  complete: {
-    bg: '#1a2e1a',
-    border: '#16a34a44',
-    dot: '#22c55e',
-    label: 'Complete',
-  },
-  flagged: {
-    bg: '#2e2415',
-    border: '#d9770644',
-    dot: '#f59e0b',
-    label: 'Needs Review',
-  },
-  error: {
-    bg: '#2e1a1a',
-    border: '#ef444444',
-    dot: '#ef4444',
-    label: 'Error',
-  },
+const ACCENT_BORDER: Record<PresetAccent, string> = {
+  sky: 'border-l-accent-sky',
+  amber: 'border-l-accent-amber',
+  slate: 'border-l-accent-slate',
+  rose: 'border-l-accent-rose',
+  charcoal: 'border-l-accent-charcoal',
+  zinc: 'border-l-accent-zinc',
+  cloud: 'border-l-accent-cloud',
 };
 
 export function PayItemRow({
@@ -59,186 +40,380 @@ export function PayItemRow({
   onResolve,
   onSetManual,
 }: Props) {
-  const status = STATUS_STYLES[item.status];
+  const [expanded, setExpanded] = useState(false);
   const [manualMode, setManualMode] = useState(false);
   const [manualQty, setManualQty] = useState('');
   const [chatInput, setChatInput] = useState('');
 
+  const accentClass = item.accent
+    ? ACCENT_BORDER[item.accent]
+    : ACCENT_BORDER.slate;
+
+  const method = methodLine(item.measurement);
+  const unit = MEASUREMENT_UNITS[item.measurement];
+
   return (
-    <div
-      className="row-enter"
-      style={{
-        background: status.bg,
-        borderRadius: 10,
-        border: `1px solid ${status.border}`,
-        padding: 14,
-        transition: 'all 0.2s ease',
-      }}
+    <article
+      className={`row-enter border-l-4 p-5 ${accentClass}`}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: 'var(--bg-card)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 12,
-            color: 'var(--text-dim)',
-            fontWeight: 600,
-            flexShrink: 0,
-            marginTop: 2,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          {index + 1}
-        </div>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Title bar */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 10,
-            }}
-          >
-            <span style={{ fontSize: 15 }}>{item.icon}</span>
-            <input
-              value={item.name}
-              onChange={(e) => onUpdate(item.id, { name: e.target.value })}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-primary)',
-                fontSize: 15,
-                fontWeight: 600,
-                outline: 'none',
-                flex: 1,
-                padding: 0,
-                minWidth: 0,
-              }}
-            />
-            <StatusBadge dot={status.dot} label={status.label} />
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-cloud text-sm font-semibold text-slate">
+            {index + 1}
           </div>
-
-          <RowFields item={item} onUpdate={onUpdate} />
-
-          {item.status === 'complete' && item.quantity !== null && (
-            <CompleteFooter item={item} />
-          )}
-
-          {item.status === 'error' && item.errorMessage && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: '8px 12px',
-                background: '#ef444412',
-                border: '1px solid #ef444422',
-                borderRadius: 6,
-                color: '#fca5a5',
-                fontSize: 12,
-              }}
-            >
-              {item.errorMessage}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={item.name}
+                onChange={(e) => onUpdate(item.id, { name: e.target.value })}
+                className="min-w-0 max-w-full border-0 bg-transparent p-0 text-base font-semibold tracking-tight text-charcoal outline-none focus:ring-0"
+              />
+              <StatusPill status={item.status} />
             </div>
-          )}
-
-          {item.status === 'flagged' && (
-            <FlaggedPanel
-              item={item}
-              manualMode={manualMode}
-              setManualMode={setManualMode}
-              manualQty={manualQty}
-              setManualQty={setManualQty}
-              chatInput={chatInput}
-              setChatInput={setChatInput}
-              onResolve={(text) => onResolve(item.id, text)}
-              onSetManual={() => {
-                const n = Number(manualQty);
-                if (!Number.isFinite(n) || n < 0) return;
-                onSetManual(item.id, n);
-                setManualMode(false);
-                setManualQty('');
-              }}
-            />
-          )}
+            <p className="mt-1 text-sm text-slate">{method}</p>
+          </div>
         </div>
-
         <button
+          type="button"
           onClick={() => onRemove(item.id)}
+          aria-label="Remove pay item"
           title="Remove"
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-faint)',
-            cursor: 'pointer',
-            fontSize: 18,
-            padding: 4,
-            lineHeight: 1,
-            flexShrink: 0,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-red)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-faint)')}
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-slate transition-colors hover:bg-cloud hover:text-danger"
         >
-          ×
+          <X className="h-4 w-4" />
         </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <FieldInput
+          label="CAD layer"
+          value={item.layer}
+          onChange={(v) => onUpdate(item.id, { layer: v })}
+          placeholder="e.g. W-MAIN"
+          mono
+        />
+        <FieldSelect
+          label="Object type"
+          value={item.objectType}
+          onChange={(v) =>
+            onUpdate(item.id, {
+              objectType: v as PayItem['objectType'],
+            })
+          }
+          options={OBJECT_TYPE_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
+        />
+        <FieldReadOnly label="Quantity unit" value={unit || '—'} mono />
+        <FieldReadOnly label="Source" value="Current drawing" />
+      </div>
+
+      {(item.extraLayers && item.extraLayers.length > 0) && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {item.extraLayers.map((name, i) => (
+            <FieldInput
+              key={i}
+              label={`Layer ${i + 2}`}
+              value={name}
+              onChange={(v) => {
+                const next = [...(item.extraLayers ?? [])];
+                next[i] = v;
+                onUpdate(item.id, { extraLayers: next });
+              }}
+              placeholder={i === 0 ? 'e.g. W-MAIN-EX' : ''}
+              mono
+            />
+          ))}
+        </div>
+      )}
+
+      <AttributeChips item={item} expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
+
+      {expanded && (
+        <div className="mt-4 rounded-xl border border-cloud bg-light p-4">
+          <ExpandedFields item={item} onUpdate={onUpdate} />
+        </div>
+      )}
+
+      {item.status === 'complete' && item.quantity !== null && (
+        <CompleteFooter item={item} />
+      )}
+
+      {item.status === 'error' && item.errorMessage && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{item.errorMessage}</span>
+        </div>
+      )}
+
+      {item.status === 'flagged' && (
+        <FlaggedPanel
+          item={item}
+          manualMode={manualMode}
+          setManualMode={setManualMode}
+          manualQty={manualQty}
+          setManualQty={setManualQty}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          onResolve={(text) => onResolve(item.id, text)}
+          onSetManual={() => {
+            const n = Number(manualQty);
+            if (!Number.isFinite(n) || n < 0) return;
+            onSetManual(item.id, n);
+            setManualMode(false);
+            setManualQty('');
+          }}
+        />
+      )}
+    </article>
+  );
+}
+
+function methodLine(m: PayItem['measurement']): string {
+  switch (m) {
+    case 'linear':
+      return 'Length from selected polylines';
+    case 'area':
+      return 'Area converted to square yards';
+    case 'count':
+      return 'Count selected objects';
+    default:
+      return '';
+  }
+}
+
+function StatusPill({ status }: { status: PayItemStatus }) {
+  const config = STATUS_CONFIG[status];
+  const Icon = config.icon;
+  return (
+    <span
+      className={`chip ring-1 ${config.className}`}
+    >
+      <Icon className={`h-3.5 w-3.5 ${config.iconClass ?? ''}`} />
+      {config.label}
+    </span>
+  );
+}
+
+const STATUS_CONFIG: Record<
+  PayItemStatus,
+  {
+    label: string;
+    icon: typeof CheckCircle2;
+    iconClass?: string;
+    className: string;
+  }
+> = {
+  pending: {
+    label: 'Pending',
+    icon: AlertCircle,
+    className: 'bg-cloud text-slate ring-cloud',
+  },
+  processing: {
+    label: 'Measuring…',
+    icon: Loader2,
+    iconClass: 'animate-spin',
+    className: 'bg-sapphire/10 text-sapphire ring-sapphire/30',
+  },
+  complete: {
+    label: 'Ready',
+    icon: CheckCircle2,
+    className: 'bg-success/10 text-success ring-success/30',
+  },
+  flagged: {
+    label: 'Needs details',
+    icon: AlertCircle,
+    className: 'bg-amber-50 text-amber-600 ring-amber/30',
+  },
+  error: {
+    label: 'Error',
+    icon: AlertCircle,
+    className: 'bg-danger/10 text-danger ring-danger/30',
+  },
+};
+
+function FieldInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  mono,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`field-input ${mono ? 'font-mono' : ''}`}
+      />
+    </div>
+  );
+}
+
+function FieldSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="field-input cursor-pointer pr-8"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function FieldReadOnly({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <div
+        className={`field-input flex items-center bg-light text-slate ${
+          mono ? 'font-mono' : ''
+        }`}
+      >
+        {value}
       </div>
     </div>
   );
 }
 
-function StatusBadge({ dot, label }: { dot: string; label: string }) {
+/**
+ * Attribute chips below the field grid. Required-but-missing attributes
+ * show in amber; filled attributes show as neutral pills. Clicking the
+ * "more attributes" chip expands the row into a detail editor.
+ */
+function AttributeChips({
+  item,
+  expanded,
+  onToggle,
+}: {
+  item: PayItem;
+  expanded: boolean;
+  onToggle(): void;
+}) {
+  const chips = buildAttributeChips(item);
+  if (chips.length === 0 && !item.fields.length) return null;
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: '3px 10px',
-        borderRadius: 20,
-        background: `${dot}18`,
-        flexShrink: 0,
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: '50%',
-          background: dot,
-        }}
-      />
-      <span style={{ fontSize: 11, color: dot, fontWeight: 500 }}>{label}</span>
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      {chips.map((chip) => (
+        <span
+          key={chip.label}
+          className={`chip ring-1 ${
+            chip.missing
+              ? 'bg-amber-50 text-amber-600 ring-amber/30'
+              : 'bg-light text-slate ring-cloud'
+          }`}
+        >
+          {chip.label}
+        </span>
+      ))}
+      {item.fields.length > 0 && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="ml-auto text-xs font-medium text-sapphire transition-colors hover:text-navy"
+        >
+          {expanded ? 'Hide attributes' : 'Edit attributes'}
+        </button>
+      )}
     </div>
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 10,
-  color: 'var(--text-dim)',
-  marginBottom: 3,
-  fontWeight: 500,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-};
+function buildAttributeChips(item: PayItem): Array<{
+  label: string;
+  missing: boolean;
+}> {
+  const chips: Array<{ label: string; missing: boolean }> = [];
+  if (item.fields.includes('autoDiameter')) {
+    chips.push({
+      label: item.autoDiameterFromWidth
+        ? 'Auto diameter from width'
+        : 'Manual diameter',
+      missing: false,
+    });
+  }
+  if (item.fields.includes('diameter') && !item.autoDiameterFromWidth) {
+    chips.push({
+      label: item.diameter ? `Diameter: ${item.diameter}` : 'Diameter required',
+      missing: !item.diameter,
+    });
+  }
+  if (item.fields.includes('material')) {
+    chips.push({
+      label: item.material ? `Material: ${item.material}` : 'Material: DIP or PVC',
+      missing: !item.material,
+    });
+  }
+  if (item.fields.includes('thickness')) {
+    chips.push({
+      label: item.thickness ? `Thickness: ${item.thickness}` : 'Thickness required',
+      missing: !item.thickness,
+    });
+  }
+  if (item.fields.includes('type')) {
+    chips.push({
+      label: item.spec ? `Type: ${item.spec}` : 'Type/spec required',
+      missing: !item.spec,
+    });
+  }
+  if (item.fields.includes('size')) {
+    chips.push({
+      label: item.size ? `Size: ${item.size}` : 'Size required',
+      missing: !item.size,
+    });
+  }
+  if (item.fields.includes('depth')) {
+    chips.push({
+      label: item.depth ? `Depth: ${item.depth}` : 'Depth required',
+      missing: !item.depth,
+    });
+  }
+  if (item.fields.includes('course')) {
+    chips.push({
+      label: item.course ? `Course: ${item.course}` : 'Course required',
+      missing: !item.course,
+    });
+  }
+  return chips;
+}
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '6px 10px',
-  background: 'var(--bg-input)',
-  border: '1px solid var(--border-card)',
-  borderRadius: 6,
-  color: 'var(--text-secondary)',
-  fontSize: 13,
-  outline: 'none',
-};
-
-function RowFields({
+function ExpandedFields({
   item,
   onUpdate,
 }: {
@@ -246,263 +421,76 @@ function RowFields({
   onUpdate: (id: string, patch: Partial<PayItem>) => void;
 }) {
   return (
-    <>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '2fr 1.5fr 0.7fr',
-          gap: 8,
-          marginBottom: 8,
-        }}
-      >
-        <div>
-          <label style={labelStyle}>Layer</label>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              value={item.layer}
-              onChange={(e) => onUpdate(item.id, { layer: e.target.value })}
-              placeholder="e.g. W-MAIN"
-              style={{ ...inputStyle, flex: 1, minWidth: 0 }}
-            />
-            <select
-              title="Number of layers to combine"
-              value={1 + (item.extraLayers?.length ?? 0)}
-              onChange={(e) => {
-                const count = Number(e.target.value);
-                const current = item.extraLayers ?? [];
-                const extras = count - 1;
-                let next: string[];
-                if (extras <= 0) {
-                  next = [];
-                } else if (extras > current.length) {
-                  next = [
-                    ...current,
-                    ...Array(extras - current.length).fill(''),
-                  ];
-                } else {
-                  next = current.slice(0, extras);
-                }
-                onUpdate(item.id, { extraLayers: next });
-              }}
-              style={{
-                ...inputStyle,
-                width: 56,
-                flex: '0 0 auto',
-                cursor: 'pointer',
-                padding: '6px 4px',
-                textAlign: 'center',
-              }}
-            >
-              {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label style={labelStyle}>Object Type</label>
-          <select
-            value={item.objectType}
-            onChange={(e) =>
-              onUpdate(item.id, {
-                objectType: e.target.value as PayItem['objectType'],
-              })
-            }
-            style={{ ...inputStyle, cursor: 'pointer' }}
-          >
-            {OBJECT_TYPE_OPTIONS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={labelStyle}>Unit</label>
-          <div
-            style={{
-              ...inputStyle,
-              background: 'var(--bg-card)',
-              color: 'var(--text-dim)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-          >
-            {MEASUREMENT_UNITS[item.measurement] || '—'}
-          </div>
-        </div>
-      </div>
-
-      {item.extraLayers && item.extraLayers.length > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: 8,
-            marginBottom: 8,
-          }}
-        >
-          {item.extraLayers.map((name, i) => (
-            <div key={i}>
-              <label style={labelStyle}>Layer {i + 2}</label>
-              <input
-                value={name}
-                onChange={(e) => {
-                  const next = [...(item.extraLayers ?? [])];
-                  next[i] = e.target.value;
-                  onUpdate(item.id, { extraLayers: next });
-                }}
-                placeholder={i === 0 ? 'e.g. W-MAIN-EX' : ''}
-                style={inputStyle}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {item.fields.includes('autoDiameter') && (
-        <div
-          style={{
-            marginBottom: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
-          }}
-        >
-          <label
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              cursor: 'pointer',
-              fontSize: 12,
-              color: 'var(--text-secondary)',
-              userSelect: 'none',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={item.autoDiameterFromWidth ?? false}
-              onChange={(e) =>
-                onUpdate(item.id, {
-                  autoDiameterFromWidth: e.target.checked,
-                })
-              }
-              style={{ margin: 0, cursor: 'pointer' }}
-            />
-            Auto-diameter from polyline width
-          </label>
-          {item.autoDiameterFromWidth &&
-            item.diameter &&
-            item.status === 'complete' && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--text-dim)',
-                  fontFamily: "'JetBrains Mono', monospace",
-                }}
-              >
-                Detected: {item.diameter}
-              </span>
-            )}
-        </div>
+        <label className="flex items-center gap-2 self-end pb-2 text-sm text-charcoal">
+          <input
+            type="checkbox"
+            checked={item.autoDiameterFromWidth ?? false}
+            onChange={(e) =>
+              onUpdate(item.id, { autoDiameterFromWidth: e.target.checked })
+            }
+            className="h-4 w-4 rounded border-cloud text-sapphire focus:ring-sapphire/30"
+          />
+          Auto-diameter from polyline width
+        </label>
       )}
-
-      {item.fields.length > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: 8,
-          }}
-        >
-          {item.fields.includes('diameter') && !item.autoDiameterFromWidth && (
-            <TextField
-              label="Diameter"
-              value={item.diameter || ''}
-              onChange={(v) => onUpdate(item.id, { diameter: v })}
-              placeholder='e.g. 8"'
-            />
-          )}
-          {item.fields.includes('material') && (
-            <TextField
-              label="Material"
-              value={item.material || ''}
-              onChange={(v) => onUpdate(item.id, { material: v })}
-              placeholder="e.g. DIP, PVC"
-            />
-          )}
-          {item.fields.includes('thickness') && (
-            <TextField
-              label="Thickness"
-              value={item.thickness || ''}
-              onChange={(v) => onUpdate(item.id, { thickness: v })}
-              placeholder='e.g. 3"'
-            />
-          )}
-          {item.fields.includes('type') && (
-            <TextField
-              label="Type / Spec"
-              value={item.spec || ''}
-              onChange={(v) => onUpdate(item.id, { spec: v })}
-              placeholder="e.g. Type D4"
-            />
-          )}
-          {item.fields.includes('size') && (
-            <TextField
-              label="Size"
-              value={item.size || ''}
-              onChange={(v) => onUpdate(item.id, { size: v })}
-              placeholder='e.g. 8"'
-            />
-          )}
-          {item.fields.includes('depth') && (
-            <TextField
-              label="Depth"
-              value={item.depth || ''}
-              onChange={(v) => onUpdate(item.id, { depth: v })}
-              placeholder="e.g. 8'"
-            />
-          )}
-          {item.fields.includes('course') && (
-            <TextField
-              label="Course"
-              value={item.course || ''}
-              onChange={(v) => onUpdate(item.id, { course: v })}
-              placeholder="e.g. Top, Leveling"
-            />
-          )}
-        </div>
+      {item.fields.includes('diameter') && !item.autoDiameterFromWidth && (
+        <FieldInput
+          label="Diameter"
+          value={item.diameter || ''}
+          onChange={(v) => onUpdate(item.id, { diameter: v })}
+          placeholder='e.g. 8"'
+        />
       )}
-    </>
-  );
-}
-
-function TextField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
+      {item.fields.includes('material') && (
+        <FieldInput
+          label="Material"
+          value={item.material || ''}
+          onChange={(v) => onUpdate(item.id, { material: v })}
+          placeholder="e.g. DIP, PVC"
+        />
+      )}
+      {item.fields.includes('thickness') && (
+        <FieldInput
+          label="Thickness"
+          value={item.thickness || ''}
+          onChange={(v) => onUpdate(item.id, { thickness: v })}
+          placeholder='e.g. 3"'
+        />
+      )}
+      {item.fields.includes('type') && (
+        <FieldInput
+          label="Type / Spec"
+          value={item.spec || ''}
+          onChange={(v) => onUpdate(item.id, { spec: v })}
+          placeholder="e.g. Type D4"
+        />
+      )}
+      {item.fields.includes('size') && (
+        <FieldInput
+          label="Size"
+          value={item.size || ''}
+          onChange={(v) => onUpdate(item.id, { size: v })}
+          placeholder='e.g. 8"'
+        />
+      )}
+      {item.fields.includes('depth') && (
+        <FieldInput
+          label="Depth"
+          value={item.depth || ''}
+          onChange={(v) => onUpdate(item.id, { depth: v })}
+          placeholder="e.g. 8'"
+        />
+      )}
+      {item.fields.includes('course') && (
+        <FieldInput
+          label="Course"
+          value={item.course || ''}
+          onChange={(v) => onUpdate(item.id, { course: v })}
+          placeholder="e.g. Top, Leveling"
+        />
+      )}
     </div>
   );
 }
@@ -510,52 +498,24 @@ function TextField({
 function CompleteFooter({ item }: { item: PayItem }) {
   const unit = MEASUREMENT_UNITS[item.measurement];
   return (
-    <div
-      style={{
-        marginTop: 10,
-        padding: '9px 12px',
-        background: '#16a34a14',
-        borderRadius: 6,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: 8,
-      }}
-    >
-      <span
-        style={{
-          color: '#86efac',
-          fontSize: 13,
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      >
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-success/30 bg-success/10 px-4 py-3">
+      <span className="font-mono text-sm text-success">
         Qty: {item.quantity?.toLocaleString()} {unit}
       </span>
-      <span
-        style={{
-          color: '#86efac',
-          fontSize: 13,
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      >
+      <span className="font-mono text-sm text-success">
         {item.unitPrice !== null ? (
           <>
             ${item.unitPrice.toFixed(2)}/{unit} →{' '}
-            <strong>${(item.quantity! * item.unitPrice).toLocaleString()}</strong>
+            <strong>
+              ${(item.quantity! * item.unitPrice).toLocaleString()}
+            </strong>
           </>
         ) : (
-          <span style={{ color: '#fbbf24' }}>No unit price yet</span>
+          <span className="text-amber-600">No unit price yet</span>
         )}
       </span>
       {item.priceSource && (
-        <span
-          style={{
-            fontSize: 10,
-            color: 'var(--text-dim)',
-            width: '100%',
-          }}
-        >
+        <span className="w-full text-[11px] text-slate">
           Source: {item.priceSource}
         </span>
       )}
@@ -585,47 +545,21 @@ function FlaggedPanel({
   onSetManual: () => void;
 }) {
   return (
-    <div style={{ marginTop: 10 }}>
-      <div
-        style={{
-          padding: '10px 12px',
-          background: '#f59e0b10',
-          borderRadius: 8,
-          border: '1px solid #f59e0b22',
-          marginBottom: 8,
-        }}
-      >
-        <div
-          style={{
-            color: '#fbbf24',
-            fontSize: 13,
-            fontWeight: 500,
-            marginBottom: 4,
-          }}
-        >
-          Estimator Assistant
-        </div>
-        <div
-          style={{
-            color: '#d4a054',
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        >
+    <div className="mt-4 overflow-hidden rounded-xl border border-amber/30 bg-amber-50">
+      <div className="flex items-center gap-2 bg-sapphire px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white">
+        <Sparkles className="h-3.5 w-3.5" />
+        Estimator Assistant
+      </div>
+      <div className="space-y-3 p-4">
+        <p className="text-sm leading-relaxed text-charcoal">
           {item.flagMessage}
-        </div>
+        </p>
         {!manualMode && item.flagOptions && item.flagOptions.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              marginTop: 10,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="flex flex-wrap gap-2">
             {item.flagOptions.map((opt) => (
               <button
                 key={opt}
+                type="button"
                 onClick={() => {
                   if (/set quantity manually/i.test(opt)) {
                     setManualMode(true);
@@ -633,72 +567,38 @@ function FlaggedPanel({
                     onResolve(opt);
                   }
                 }}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 6,
-                  border: '1px solid #f59e0b44',
-                  background: '#f59e0b11',
-                  color: '#fbbf24',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                  transition: 'all 0.12s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f59e0b22';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f59e0b11';
-                }}
+                className="chip border border-amber-600/30 bg-white text-amber-600 transition-colors hover:bg-amber-50"
               >
                 {opt}
               </button>
             ))}
           </div>
         )}
-      </div>
-      {manualMode ? (
-        <div style={{ display: 'flex', gap: 6 }}>
+        {manualMode ? (
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={manualQty}
+              onChange={(e) => setManualQty(e.target.value)}
+              placeholder="Enter quantity"
+              className="field-input flex-1"
+            />
+            <button
+              type="button"
+              onClick={onSetManual}
+              className="btn-primary"
+            >
+              Set
+            </button>
+            <button
+              type="button"
+              onClick={() => setManualMode(false)}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
           <input
-            placeholder="Enter quantity"
-            value={manualQty}
-            onChange={(e) => setManualQty(e.target.value)}
-            style={{ ...inputStyle, flex: 1 }}
-          />
-          <button
-            onClick={onSetManual}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 6,
-              border: '1px solid #22c55e44',
-              background: '#22c55e15',
-              color: 'var(--accent-green)',
-              fontSize: 12,
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
-          >
-            Set
-          </button>
-          <button
-            onClick={() => setManualMode(false)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 6,
-              border: '1px solid var(--border-card)',
-              background: 'transparent',
-              color: 'var(--text-dim)',
-              fontSize: 12,
-              cursor: 'pointer',
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            placeholder="Or type a response to the Estimator Assistant..."
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => {
@@ -707,10 +607,11 @@ function FlaggedPanel({
                 setChatInput('');
               }
             }}
-            style={{ ...inputStyle, flex: 1 }}
+            placeholder="Or type a response to the Estimator Assistant…"
+            className="field-input"
           />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
