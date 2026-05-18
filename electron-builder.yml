@@ -13,6 +13,12 @@ files:
 asarUnpack:
   - resources/**
   - node_modules/winax/**
+  # The Claude Agent SDK spawns the user's system `node` to run cli.js as a
+  # subprocess. Plain Node has no asar reader, so cli.js + every module it
+  # requires must sit on disk. Unpack the SDK and its peer/runtime deps.
+  - node_modules/@anthropic-ai/**
+  - node_modules/@modelcontextprotocol/**
+  - node_modules/zod/**
 win:
   target: nsis
   icon: resources/icon.ico
