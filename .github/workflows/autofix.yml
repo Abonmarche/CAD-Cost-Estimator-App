@@ -81,7 +81,7 @@ jobs:
             --effort high
             --allowedTools "Bash(gh:*),Bash(git:*),Bash(npm ci),Bash(npm test),Bash(npm run typecheck),Read,Grep,Glob,Edit,Write"
           prompt: |
-            You are the auto-fix agent for <YOUR PROJECT>. Issue
+            You are the auto-fix agent for the Cost Estimator. Issue
             #${{ github.event.issue.number }} was just classified as
             ready for an automatic PR by the triage agent.
 

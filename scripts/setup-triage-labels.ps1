@@ -47,17 +47,15 @@ $Labels = @(
     @{ name = 'effort:integration'; color = '5319e7'; desc = 'Touches Graph client / hook / multi-module - Tier 3 contract test' },
     @{ name = 'effort:schema';      color = '5319e7'; desc = 'Backend schema change - schema-drift guard update required' },
 
-    # --- area (CUSTOMIZE for your project) -------------------------------
-    # These are the ACI-CRM defaults. Replace with your project's top-level
-    # product feature groupings.
-    @{ name = 'area:dashboard';    color = 'c5def5'; desc = 'Dashboard view, KPIs, charts' },
-    @{ name = 'area:leads';        color = 'c5def5'; desc = 'Leads list + edit form' },
-    @{ name = 'area:inventory';    color = 'c5def5'; desc = 'Inventory view + filters + detail' },
-    @{ name = 'area:tasks';        color = 'c5def5'; desc = 'Tasks view' },
-    @{ name = 'area:bulk-import';  color = 'c5def5'; desc = 'CSV/Excel bulk import wizard' },
-    @{ name = 'area:auth';         color = 'c5def5'; desc = 'MSAL / sign-in / token acquisition' },
-    @{ name = 'area:graph';        color = 'c5def5'; desc = 'Graph client, SharePoint reads/writes' },
-    @{ name = 'area:feedback-api'; color = 'c5def5'; desc = 'Azure Function feedback API' }
+    # --- area (Cost Estimator) -------------------------------------------
+    @{ name = 'area:autocad';      color = 'c5def5'; desc = 'AutoCAD COM, measurement, layers, selection sets' },
+    @{ name = 'area:agent-sdk';    color = 'c5def5'; desc = 'Resolution chat / Estimator Assistant' },
+    @{ name = 'area:auth';         color = 'c5def5'; desc = 'MSAL sign-in, token cache, custom protocol' },
+    @{ name = 'area:llm-proxy';    color = 'c5def5'; desc = 'Azure Function proxy in front of api.anthropic.com' },
+    @{ name = 'area:feedback-api'; color = 'c5def5'; desc = 'Azure Function that opens GitHub issues' },
+    @{ name = 'area:pricing';      color = 'c5def5'; desc = 'CostEstDB MCP lookups, unit prices' },
+    @{ name = 'area:renderer';     color = 'c5def5'; desc = 'React UI: pay items, header, modal, sign-in' },
+    @{ name = 'area:export';       color = 'c5def5'; desc = 'Excel export, project artifacts' }
 )
 
 Write-Host "Creating/updating $($Labels.Count) labels in $Repo..." -ForegroundColor Cyan

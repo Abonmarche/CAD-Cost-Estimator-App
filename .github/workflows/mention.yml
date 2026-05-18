@@ -83,7 +83,7 @@ jobs:
             --effort high
             --allowedTools "Bash(gh:*),Bash(git:*),Bash(npm ci),Bash(npm test),Bash(npm run typecheck),Read,Grep,Glob,Edit,Write"
           prompt: |
-            You were tagged with @claude on a <YOUR PROJECT> issue or PR.
+            You were tagged with @claude on a Cost Estimator issue or PR.
             Read the comment / issue body that mentioned you, identify
             what's being asked, and act appropriately.
 

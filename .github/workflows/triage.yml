@@ -62,14 +62,16 @@ jobs:
           # bot's slug + '[bot]' suffix. Example for the feedback-loop
           # pattern: 'aci-crm-feedback[bot]'. NEVER use '*' — that opens
           # the door to any external App invoking the workflow.
-          # allowed_bots: '<your-feedback-bot>[bot]'
+          allowed_bots: 'cad-cost-estimator-app-feedback[bot]'
           claude_args: |
             --model claude-haiku-4-5
             --effort high
             --allowedTools "Bash(gh:*),Read,Grep,Glob"
           prompt: |
-            You are the triage agent for <YOUR PROJECT NAME>. A new issue
-            was just opened.
+            You are the triage agent for the Abonmarche Cost Estimator —
+            an Electron desktop app that reads quantities from AutoCAD
+            and prices them against historical bid data via the
+            CostEstDB MCP. A new issue was just opened.
 
             ISSUE
             - Number: #${{ github.event.issue.number }}
@@ -117,8 +119,18 @@ jobs:
               effort:integration  Crosses module boundaries
               effort:schema       Schema change required
 
-            Area — apply at most one if triage:actionable:
-              area:<your-domain-1>, area:<your-domain-2>, ...
+            Area — apply at most one if triage:actionable. Pick the
+            closest match from the labels actually defined on the repo;
+            inspect with `gh label list --search 'area:' --json name`
+            if unsure. Today's areas include:
+              area:autocad        AutoCAD COM, measurement, layers
+              area:agent-sdk      Resolution chat / Estimator Assistant
+              area:auth           MSAL sign-in, token cache
+              area:llm-proxy      Azure Function in front of api.anthropic.com
+              area:feedback-api   Azure Function that opens GitHub issues
+              area:pricing        CostEstDB lookups
+              area:renderer       React UI (pay items, header, modal)
+              area:export         Excel export
 
             =====================================================================
             STEP 3 — APPLY LABELS (in this order)
