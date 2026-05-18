@@ -13,11 +13,44 @@
  *     scoped to the one it's resolving.
  */
 
+import { app } from 'electron';
+import { join } from 'node:path';
+
 import type { ResolveMessage, ResolvePayload } from '@shared/types';
 import { getAutocadServer } from './tools/autocad/server';
 import { getCostEstDbConfig, COSTESTDB_TOOL_NAMES } from './tools/costestdb';
 import { buildPayItemDescription } from '@shared/presets';
 import { getApiToken } from './auth/tokens';
+
+/**
+ * Locate the SDK's `cli.js` for the spawned subprocess.
+ *
+ * The Agent SDK auto-resolves cli.js relative to its own `sdk.mjs` via
+ * `createRequire(import.meta.url).resolve('./cli.js')`. In packaged
+ * Electron, that returns a path inside `app.asar`. The SDK then runs
+ * `spawn('node', [thatPath])` — but plain Node has no asar reader, so
+ * it fails with MODULE_NOT_FOUND on the entry file itself.
+ *
+ * Electron-builder's `asarUnpack` rule copies the SDK to
+ * `app.asar.unpacked/`, so we just need to rewrite the asar path the
+ * SDK would have used. In dev (no asar), return undefined and let the
+ * SDK's auto-locator handle it normally.
+ */
+function resolveAgentCliPath(): string | undefined {
+  const appPath = app.getAppPath();
+  if (!appPath.includes('app.asar')) return undefined;
+  const unpacked = appPath.replace(
+    /app\.asar(?!\.unpacked)/,
+    'app.asar.unpacked',
+  );
+  return join(
+    unpacked,
+    'node_modules',
+    '@anthropic-ai',
+    'claude-agent-sdk',
+    'cli.js',
+  );
+}
 
 /**
  * Drive the resolution agent for a single pay item. Async-iterator so the
@@ -82,10 +115,14 @@ export async function* resolvePayItem(
 
   try {
     const autocadServer = await getAutocadServer();
+    const cliPath = resolveAgentCliPath();
     for await (const msg of query({
       prompt,
       options: {
         systemPrompt,
+        // Force the SDK to spawn cli.js from the asar-unpacked copy in
+        // packaged builds. Undefined in dev so its auto-locator runs.
+        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
         mcpServers: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           autocad: autocadServer as any,
