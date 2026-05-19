@@ -8,7 +8,7 @@ import { PayItemLibrary } from './components/PayItemLibrary';
 import { PayItemList } from './components/PayItemList';
 import { EmptyState } from './components/EmptyState';
 import { FeedbackModal } from './components/FeedbackModal';
-import { StepperFooter, type WorkflowStep } from './components/StepperFooter';
+import { WorkflowFooter } from './components/WorkflowFooter';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { SignInScreen } from './auth/SignInScreen';
 import { useAutocadStatus } from './hooks/useAutocadStatus';
@@ -39,7 +39,6 @@ function AppMain() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(LIBRARY_COLLAPSED_KEY) === '1';
   });
-  const [hasMeasured, setHasMeasured] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -74,85 +73,28 @@ function AppMain() {
       (sum, i) => sum + (i.quantity ?? 0) * (i.unitPrice ?? 0),
       0,
     );
-    const ready = complete;
     return {
       complete,
       flagged,
       pending,
       processing,
       errored,
-      ready,
       total,
     };
   }, [items]);
 
-  // Workflow step derivation. The user clicks the "Quantify" CTA which
-  // sets `hasMeasured = true`; from then on we sit in `quantify` until
-  // every item is `complete` (or errored), at which point we advance to
-  // `estimate`. Going back is handled by `handleGoBack` below.
-  const step: WorkflowStep = useMemo(() => {
-    if (!hasMeasured) return 'setup';
-    if (
-      items.length > 0 &&
-      counts.complete + counts.errored === items.length &&
-      counts.complete > 0
-    ) {
-      return 'estimate';
-    }
-    return 'quantify';
-  }, [
-    hasMeasured,
-    items.length,
-    counts.complete,
-    counts.errored,
-  ]);
-
-  // Reset the `hasMeasured` flag when the item set empties (back to setup).
-  useEffect(() => {
-    if (items.length === 0 && hasMeasured) setHasMeasured(false);
-  }, [items.length, hasMeasured]);
-
-  const canAdvance = (() => {
-    if (running || exporting) return false;
-    if (step === 'setup') {
-      return counts.pending > 0 && counts.flagged === 0;
-    }
-    if (step === 'quantify') {
-      return counts.complete > 0 && counts.pending === 0 && counts.flagged === 0 && counts.processing === 0;
-    }
-    return counts.complete > 0;
-  })();
-
-  async function handleAdvance() {
-    if (step === 'setup') {
-      setHasMeasured(true);
-      measure();
-      return;
-    }
-    if (step === 'quantify') {
-      // Items are already complete — derive step transitions through useMemo.
-      // The CTA is only enabled when everything is ready, so nothing to do here.
-      return;
-    }
-    if (step === 'estimate') {
-      const payload: EstimateExport = {
-        projectName,
-        items,
-        totalCost: counts.total,
-        exportDate: new Date().toISOString(),
-      };
-      const res = await exportEstimate(payload);
-      if (res.success) {
-        console.info('Saved to', res.filePath);
-      } else {
-        alert(`Export failed: ${res.error}`);
-      }
-    }
-  }
-
-  function handleGoBack(target: WorkflowStep) {
-    if (target === 'setup') {
-      setHasMeasured(false);
+  async function handleExport() {
+    const payload: EstimateExport = {
+      projectName,
+      items,
+      totalCost: counts.total,
+      exportDate: new Date().toISOString(),
+    };
+    const res = await exportEstimate(payload);
+    if (res.success) {
+      console.info('Saved to', res.filePath);
+    } else {
+      alert(`Export failed: ${res.error}`);
     }
   }
 
@@ -182,7 +124,7 @@ function AppMain() {
               onProjectNameChange={setProjectName}
               stats={{
                 items: items.length,
-                ready: counts.ready,
+                ready: counts.complete,
                 estimate: counts.total,
               }}
             />
@@ -202,17 +144,17 @@ function AppMain() {
         </main>
       </div>
 
-      <StepperFooter
-        step={step}
-        pendingCount={counts.pending}
+      <WorkflowFooter
         itemCount={items.length}
+        pendingCount={counts.pending}
         flaggedCount={counts.flagged}
-        readyCount={counts.ready}
+        processingCount={counts.processing}
+        completeCount={counts.complete}
+        erroredCount={counts.errored}
         running={running}
         exporting={exporting}
-        canAdvance={canAdvance}
-        onAdvance={handleAdvance}
-        onGoBack={handleGoBack}
+        onMeasure={measure}
+        onExport={handleExport}
       />
     </div>
   );
