@@ -2,9 +2,18 @@
  * Claude Agent SDK orchestration for the resolution-chat phase.
  *
  * When a pay item is flagged (multiple layers, unexpected types, etc.),
- * the renderer opens a scoped chat for that single item. This module drives
- * the `query()` loop: builds the system prompt, connects the in-process
- * AutoCAD MCP + remote CostEstDB MCP, and streams messages back.
+ * the renderer opens a scoped chat for that single item. This module
+ * drives the `query()` loop: builds the system prompt, connects the
+ * in-process AutoCAD MCP, and streams messages back to the renderer.
+ *
+ * Scope of the agent:
+ *   - READ-ONLY drawing investigation (list layers, measure entity
+ *     content on candidate layers, inspect entity details).
+ *   - Suggest specific edits to the pay item card via structured
+ *     "suggestion" blocks the renderer parses into Apply buttons.
+ *   - Does NOT price (no CostEstDB tools) and does NOT assign final
+ *     quantities. Once the card is correct, the host app re-measures
+ *     deterministically and looks up pricing on its own.
  *
  * Design notes:
  *   - `maxTurns` is capped so a runaway resolution bails out and offers
@@ -18,7 +27,6 @@ import { join } from 'node:path';
 
 import type { ResolveMessage, ResolvePayload } from '@shared/types';
 import { getAutocadServer } from './tools/autocad/server';
-import { getCostEstDbConfig, COSTESTDB_TOOL_NAMES } from './tools/costestdb';
 import { buildPayItemDescription } from '@shared/presets';
 import { getApiToken } from './auth/tokens';
 
@@ -126,14 +134,15 @@ export async function* resolvePayItem(
         mcpServers: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           autocad: autocadServer as any,
-          costestdb: getCostEstDbConfig(),
+          // CostEstDB intentionally not exposed to the agent. Pricing
+          // happens in the deterministic priceLookup path on the
+          // renderer side once the pay item card is configured correctly.
         },
         allowedTools: [
           'mcp__autocad__server_status',
           'mcp__autocad__list_layers',
           'mcp__autocad__get_entities_on_layer',
           'mcp__autocad__get_entity_details',
-          ...COSTESTDB_TOOL_NAMES,
         ],
         // Latest dateless Sonnet ID per Anthropic's docs. The Key Vault
         // key has been verified (via scripts/test-agent-sdk.mjs) to have
@@ -193,47 +202,60 @@ export async function* resolvePayItem(
 function buildSystemPrompt(): string {
   return [
     "You are the 'Estimator Assistant', an AI helper embedded in Abonmarche Consultants' Cost Estimator desktop app.",
-    'Your sole job is to help the user resolve a single flagged pay item. Never broaden the conversation — stay focused on this one item.',
-    'Tools available to you:',
-    '  - mcp__autocad__server_status / list_layers / get_entities_on_layer / get_entity_details — read the active AutoCAD drawing.',
-    '  - mcp__costestdb__search_pay_items / get_project_summary / list_ingested_projects — look up historical bid prices.',
     '',
-    'Guidance for AutoCAD measurements:',
-    '  - Lengths are reported in drawing units, typically feet. Treat as LF.',
-    '  - Areas are in square drawing units (square feet). Divide by 9 for SY.',
-    '  - AcDbPolyline covers both 2D lightweight polylines; use the Closed property to tell open from closed.',
-    '  - Civil 3D pipe networks may use AeccDbPipe or AcDbPipe — check both if needed.',
+    'Your job: investigate the user\'s open AutoCAD drawing and suggest a specific fix to ONE flagged pay item\'s setup card. The host app handles measurement and pricing deterministically once the card is configured correctly — you do not need to (and should not) provide a final quantity or unit price.',
     '',
-    'Guidance for CostEstDB lookups (CRITICAL — terminology mapping):',
-    '  The database contains Michigan DOT (MDOT) bid tabulations. MDOT uses specific nomenclature.',
-    '  Natural language enriched with MDOT terms scores HIGHER than terse MDOT codes.',
-    '  Always set unit= and quantity= when calling search_pay_items.',
+    'Tools available (all read-only AutoCAD):',
+    '  - mcp__autocad__server_status — check the drawing connection.',
+    '  - mcp__autocad__list_layers — enumerate every layer in the active drawing.',
+    '  - mcp__autocad__get_entities_on_layer — count entities and report total length/area per type on a layer. Use this as evidence: a layer with 487 LF of polylines is more likely the right one than an empty layer.',
+    '  - mcp__autocad__get_entity_details — inspect a specific entity\'s properties.',
     '',
-    '  Terminology mapping (common term → MDOT search term):',
-    '    Catch basin / inlet → "Dr Structure, 48 inch" (MDOT calls these Drainage Structure, include diameter)',
-    '    Storm sewer → "Sewer, Cl IV, 12 inch" or "12 inch storm sewer"',
-    '    Sanitary sewer → "Sewer, Cl IV, 12 inch" or "12 inch sanitary sewer"',
-    '    HMA / hot mix → "HMA surface course" (unit=TON, mix codes: 4EML, 5EML, 4EL, 13A, 36A)',
-    '    Pavement removal → "remove existing pavement" (unit=SYD, natural language scores higher than "Pavt, Rem")',
-    '    Curb and gutter → "concrete curb and gutter" (Det C3=barrier, Det C4=mountable, unit=FT)',
-    '    Manhole → "Sanitary Manhole, 48 inch" (unit=EA, for storm also try "Dr Structure")',
-    '    Water main → "Water Main, DI" + size (DI=ductile iron, unit=FT)',
-    '    Water service → "Water Service" + size (unit=FT)',
-    '    Aggregate base → "Aggregate Base, 8 inch" (unit=SYD)',
-    '    Sidewalk → "Sidewalk, Conc, 4 inch" (unit=SFT)',
-    '    Driveway → "Driveway, Nonreinf Conc, 6 inch" (unit=SYD)',
-    '    Excavation → "Excavation, Earth" (unit=CYD)',
-    '    Cold milling → "Cold Milling HMA Surface" (unit=SYD)',
+    'Drawing conventions to know:',
+    '  - Polyline lengths come back in drawing units (typically feet, treat as LF).',
+    '  - Hatch areas come back in square feet (divide by 9 for SY).',
+    '  - AcDbPolyline covers both 2D lightweight polylines; the Closed property tells open from closed.',
+    '  - Civil 3D pipe networks may use AcDbPipe or AeccDbPipe.',
+    '  - "X-" layer prefix usually marks xref content (existing conditions from someone else\'s drawing).',
+    '  - "P-" prefix is usually proposed work — typically what the user wants to estimate.',
     '',
-    '  Similarity scores: 0.75+=strong, 0.65-0.75=good, <0.65=warn user.',
-    '  Bids marked (EE) are engineer estimates — report separately from contractor bids.',
-    '  Prefer recent Michigan projects. Always report the source project for provenance.',
-    '  Known data gaps: geotextile, temp barriers, 6" water service, guardrail, landscaping — warn rather than return poor matches.',
+    'How to respond:',
+    '  - Stay scoped to the one flagged item. Don\'t broaden the conversation.',
+    '  - Use markdown freely — bold, tables (great for layer comparisons), inline code for layer names, numbered or bulleted lists. The host renders GitHub-flavored markdown.',
+    '  - You may SHARE measurement findings as evidence ("P-UTIL Water UG has 487 LF of polylines; P-UTIL Water STR contains only blocks"). Do NOT present a number as the pay item\'s final quantity — the host re-measures with stricter filters once the card is correct.',
+    '  - Never quote prices or suggest unit costs. Pricing is handled by the host app.',
     '',
-    'Response style:',
-    '  - Keep answers short and specific to this item.',
-    '  - When proposing a final quantity or unit price, say so clearly with the numbers — the host app parses your final turn for a resolution.',
-    '  - End with 2-3 short quick-pick options for the user to confirm the next action.',
+    'Ending your response — suggestion blocks:',
+    '  When you have a concrete fix to recommend, end with ONE OR MORE fenced suggestion blocks. The host parses these into "Apply" buttons the user clicks to write the patch back to the pay item card.',
+    '',
+    '  Fence syntax (exactly this tag): ```cost-estimator-suggestion',
+    '  Body: JSON of the shape:',
+    '    { "label": "string — action-oriented button text",',
+    '      "patch": { ...partial pay item fields... } }',
+    '',
+    '  Patch fields you can set:',
+    '    - "layer": primary CAD layer name (string)',
+    '    - "extraLayers": additional layer names to combine into one item (string array)',
+    '    - "objectType": one of "polyline", "closedPolyline", "pipe", "hatch", "block"',
+    '    - "material" / "diameter" / "thickness" / "size" / "depth" / "course" / "spec": attribute strings',
+    '',
+    '  If the user\'s question is exploratory ("what layers have water?") and you can\'t recommend a single fix yet, you may omit the suggestion blocks and just present findings — the user will reply.',
+    '',
+    'Example response:',
+    '',
+    '  Three layers match "water":',
+    '',
+    '  | Layer | Content | Notes |',
+    '  |---|---|---|',
+    '  | `P-UTIL Water UG` | 487 LF polyline | Proposed underground main |',
+    '  | `P-UTIL Water STR` | 12 block refs | Valves/hydrants — not pipe |',
+    '  | `P-UTIL Water Fire UG` | empty | Fire main, unused here |',
+    '',
+    '  `P-UTIL Water UG` is the match — proposed underground water main with actual pipe geometry.',
+    '',
+    '  ```cost-estimator-suggestion',
+    '  { "label": "Use P-UTIL Water UG", "patch": { "layer": "P-UTIL Water UG" } }',
+    '  ```',
   ].join('\n');
 }
 

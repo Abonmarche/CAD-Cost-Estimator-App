@@ -19,6 +19,10 @@ function makeId(): string {
  * Map an MCP tool name to a human-readable progress string. Shown in the
  * Estimator Assistant panel while a long-running resolution is mid-tool-
  * use so the user sees forward progress instead of a silent spinner.
+ *
+ * Only AutoCAD tools are listed — the agent intentionally has no
+ * CostEstDB access (pricing is handled deterministically by the host
+ * once a card is correct).
  */
 function friendlyToolStatus(toolName: string): string {
   switch (toolName) {
@@ -30,12 +34,6 @@ function friendlyToolStatus(toolName: string): string {
       return 'Inspecting entity details…';
     case 'mcp__autocad__server_status':
       return 'Checking AutoCAD connection…';
-    case 'mcp__costestdb__search_pay_items':
-      return 'Searching CostEstDB for matching bid prices…';
-    case 'mcp__costestdb__get_project_summary':
-      return 'Fetching project context from CostEstDB…';
-    case 'mcp__costestdb__list_ingested_projects':
-      return 'Listing CostEstDB projects…';
     default:
       return `Running ${toolName.replace(/^mcp__[^_]+__/, '')}…`;
   }
