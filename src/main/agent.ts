@@ -135,6 +135,16 @@ export async function* resolvePayItem(
           'mcp__autocad__get_entity_details',
           ...COSTESTDB_TOOL_NAMES,
         ],
+        // Pin to the latest dateless Sonnet ID per Anthropic's docs
+        // (https://platform.claude.com/docs/en/about-claude/models/overview).
+        // Set explicitly rather than relying on the SDK's hidden default —
+        // we saw the SDK's auto-pick land on a model that the proxy's key
+        // didn't have access to, surfacing as "claude-sonnet-4-6 may not
+        // exist or you may not have access". `fallbackModel` rolls down to
+        // the previous-generation Sonnet if the primary is unavailable for
+        // any reason (access rollout, transient routing, model swap).
+        model: 'claude-sonnet-4-6',
+        fallbackModel: 'claude-sonnet-4-5',
         maxTurns: 10,
         // `debug: true` makes the CLI write verbose diagnostics to stderr.
         // Cheap to enable — these only surface when something goes wrong.
