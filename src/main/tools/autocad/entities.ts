@@ -31,6 +31,15 @@ export interface GetEntitiesOptions {
    * Non-polyline entities ignore this filter.
    */
   closed_filter?: boolean;
+  /**
+   * Substring (case-insensitive) matched against each Civil 3D entity's
+   * `Style.Name`. Entities whose style doesn't match are dropped from
+   * the result and counted in `summary.skipped_by_style`. Non-AECC
+   * entities (no Style property) are always kept regardless of this
+   * filter — the keyword only applies when there's a style to match.
+   * Empty/undefined = no filter.
+   */
+  style_keyword?: string;
 }
 
 export interface GetEntitiesResult {
@@ -44,7 +53,13 @@ export interface GetEntitiesResult {
 export function getEntitiesOnLayer(
   opts: GetEntitiesOptions,
 ): GetEntitiesResult {
-  const { layer_name, dxf_types, object_name_filter, closed_filter } = opts;
+  const {
+    layer_name,
+    dxf_types,
+    object_name_filter,
+    closed_filter,
+    style_keyword,
+  } = opts;
 
   // Server-side filter: drops 99%+ of entities before they ever cross COM.
   const raw = selectEntities({
@@ -58,11 +73,16 @@ export function getEntitiesOnLayer(
     object_name_filter && object_name_filter.length > 0
       ? new Set(object_name_filter)
       : null;
+  const styleNeedle =
+    typeof style_keyword === 'string' && style_keyword.trim().length > 0
+      ? style_keyword.trim().toLowerCase()
+      : null;
 
   const entities: EntityRecord[] = [];
   const typeCounts: Record<string, number> = {};
   const typeLengths: Record<string, number> = {};
   const typeAreas: Record<string, number> = {};
+  let skippedByStyle = 0;
 
   for (const entity of raw as Record<string, unknown>[]) {
     const objName = safeGet<string>(entity, 'ObjectName', '') ?? '';
@@ -73,9 +93,21 @@ export function getEntitiesOnLayer(
       if (closed !== closed_filter) continue;
     }
 
-    typeCounts[objName] = (typeCounts[objName] ?? 0) + 1;
-
     const info = extractSummaryProps(entity);
+
+    // Style-keyword filter — only applied when the entity actually has a
+    // Style.Name (Civil 3D AECC entities). Non-AECC entities always pass.
+    if (styleNeedle) {
+      if (typeof info.style_name === 'string') {
+        if (!info.style_name.toLowerCase().includes(styleNeedle)) {
+          skippedByStyle += 1;
+          continue;
+        }
+      }
+      // No style_name → fall through (no filter applies).
+    }
+
+    typeCounts[objName] = (typeCounts[objName] ?? 0) + 1;
     entities.push(info);
 
     if (typeof info.length === 'number') {
@@ -91,6 +123,9 @@ export function getEntitiesOnLayer(
     total_entities: entities.length,
     type_counts: typeCounts,
   };
+  if (skippedByStyle > 0) {
+    summary.skipped_by_style = skippedByStyle;
+  }
   if (Object.keys(typeLengths).length > 0) {
     summary.total_lengths_by_type = roundMap(typeLengths);
   }

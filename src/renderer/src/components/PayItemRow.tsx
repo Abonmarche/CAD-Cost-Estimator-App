@@ -252,6 +252,19 @@ export function PayItemRow({
             setManualMode(false);
             setManualQty('');
           }}
+          onDismissFlag={() => {
+            // Informational flags (e.g. "I dropped N other entities…") can
+            // be acknowledged without an agent round-trip. The measurement
+            // stands; we just clear the flag panel.
+            onUpdate(item.id, {
+              status: 'complete',
+              flagMessage: null,
+              flagOptions: null,
+            });
+            setChatInput('');
+            setManualMode(false);
+            setManualQty('');
+          }}
         />
       )}
     </article>
@@ -456,16 +469,41 @@ function buildAttributeChips(item: PayItem): Array<{
       missing: false,
     });
   }
-  if (item.fields.includes('diameter') && !item.autoDiameterFromWidth) {
+  if (item.fields.includes('autoParts')) {
+    chips.push({
+      label: item.autoFromPartFeature
+        ? 'Auto from Civil 3D parts'
+        : 'Manual diameter & material',
+      missing: false,
+    });
+  }
+  if (item.fields.includes('styleKeyword')) {
+    chips.push({
+      label: item.styleKeyword
+        ? `Style filter: ${item.styleKeyword}`
+        : 'Style filter: (any)',
+      missing: false,
+    });
+  }
+  if (
+    item.fields.includes('diameter') &&
+    !item.autoDiameterFromWidth &&
+    !item.autoFromPartFeature
+  ) {
     chips.push({
       label: item.diameter ? `Diameter: ${item.diameter}` : 'Diameter required',
       missing: !item.diameter,
     });
   }
-  if (item.fields.includes('material')) {
+  if (item.fields.includes('material') && !item.autoFromPartFeature) {
     chips.push({
       label: item.material ? `Material: ${item.material}` : 'Material: DIP or PVC',
       missing: !item.material,
+    });
+  } else if (item.fields.includes('material') && item.autoFromPartFeature && item.material) {
+    chips.push({
+      label: `Material: ${item.material}`,
+      missing: false,
     });
   }
   if (item.fields.includes('thickness')) {
@@ -523,15 +561,38 @@ function ExpandedFields({
           Auto-diameter from polyline width
         </label>
       )}
-      {item.fields.includes('diameter') && !item.autoDiameterFromWidth && (
+      {item.fields.includes('autoParts') && (
+        <label className="flex items-center gap-2 self-end pb-2 text-sm text-charcoal">
+          <input
+            type="checkbox"
+            checked={item.autoFromPartFeature ?? false}
+            onChange={(e) =>
+              onUpdate(item.id, { autoFromPartFeature: e.target.checked })
+            }
+            className="h-4 w-4 rounded border-cloud text-sapphire focus:ring-sapphire/30"
+          />
+          Auto-extract diameter &amp; material from feature
+        </label>
+      )}
+      {item.fields.includes('styleKeyword') && (
         <FieldInput
-          label="Diameter"
-          value={item.diameter || ''}
-          onChange={(v) => onUpdate(item.id, { diameter: v })}
-          placeholder='e.g. 8"'
+          label="Civil 3D style filter"
+          value={item.styleKeyword || ''}
+          onChange={(v) => onUpdate(item.id, { styleKeyword: v })}
+          placeholder="e.g. sanitary, storm"
         />
       )}
-      {item.fields.includes('material') && (
+      {item.fields.includes('diameter') &&
+        !item.autoDiameterFromWidth &&
+        !item.autoFromPartFeature && (
+          <FieldInput
+            label="Diameter"
+            value={item.diameter || ''}
+            onChange={(v) => onUpdate(item.id, { diameter: v })}
+            placeholder='e.g. 8"'
+          />
+        )}
+      {item.fields.includes('material') && !item.autoFromPartFeature && (
         <FieldInput
           label="Material"
           value={item.material || ''}
@@ -623,6 +684,7 @@ function FlaggedPanel({
   onResolve,
   onSetManual,
   onApplySuggestion,
+  onDismissFlag,
 }: {
   item: PayItem;
   working: boolean;
@@ -635,6 +697,7 @@ function FlaggedPanel({
   onResolve: (text: string) => void;
   onSetManual: () => void;
   onApplySuggestion: (patch: Partial<PayItem>) => void;
+  onDismissFlag: () => void;
 }) {
   // Extract structured agent suggestions out of the markdown blob so we
   // can render them as Apply buttons. The fenced JSON blocks are
@@ -698,6 +761,10 @@ function FlaggedPanel({
                     onClick={() => {
                       if (/set quantity manually/i.test(opt)) {
                         setManualMode(true);
+                      } else if (/^ok,/i.test(opt)) {
+                        // "OK, keep this measurement" — informational
+                        // acknowledgement, no agent needed.
+                        onDismissFlag();
                       } else {
                         onResolve(opt);
                       }

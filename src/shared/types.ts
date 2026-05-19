@@ -23,6 +23,19 @@ export type PayItemStatus =
 /** Fields that can be conditionally rendered on a pay item row. */
 export type PayItemField =
   | 'autoDiameter'
+  /**
+   * Renders the "Auto-extract diameter & material from feature" checkbox.
+   * Used by Civil 3D pipe-network presets (Sanitary Sewer, Storm Sewer)
+   * where the diameter and material live on the AeccDbPipe's PartSizeName
+   * / Description instead of being encoded in polyline ConstantWidth.
+   */
+  | 'autoParts'
+  /**
+   * Renders the "Civil 3D style keyword" field. Lets the user narrow a
+   * shared pipe-network layer (e.g. P-UTIL) to just sanitary/storm/water
+   * pipes by matching the entity's Style.Name. Empty string = no filter.
+   */
+  | 'styleKeyword'
   | 'diameter'
   | 'material'
   | 'thickness'
@@ -60,6 +73,14 @@ export interface PayItemPreset {
   accent?: PresetAccent;
   /** Which attribute fields to show in the form row for this preset. */
   fields: PayItemField[];
+  /**
+   * Default style-name keyword for Civil 3D pipe-network presets. When a
+   * shared layer (e.g. P-UTIL) carries both sanitary and storm pipes, the
+   * keyword narrows the SelectionSet to entities whose `Style.Name`
+   * contains this substring (case-insensitive). Empty/undefined = no
+   * style filter applied.
+   */
+  defaultStyleKeyword?: string;
   /** `true` for fully custom items (user sets layer from scratch). */
   custom?: boolean;
 }
@@ -92,6 +113,20 @@ export interface PayItem extends PayItemPreset {
    * foot (0.5 ft = 6", 1.0 ft = 12"). Defaults to `true` for water main.
    */
   autoDiameterFromWidth?: boolean;
+  /**
+   * When true (and `objectType === 'pipe'`), infer diameter + material
+   * from the Civil 3D part feature on each AeccDbPipe — `PartSizeName`
+   * first ("8.0 inch PVC Pipe"), `Description` as a fallback ("8" SDR 35").
+   * Defaults to `true` for the Sanitary/Storm Sewer presets.
+   */
+  autoFromPartFeature?: boolean;
+  /**
+   * Substring (case-insensitive) matched against `entity.Style.Name` to
+   * narrow the SelectionSet on a shared pipe-network layer. e.g. the
+   * Sanitary preset uses `'sanitary'`, Storm uses `'storm'` — both
+   * default to layer `P-UTIL`. Empty/undefined = no style filter.
+   */
+  styleKeyword?: string;
 
   // Measurement results
   quantity: number | null;
@@ -129,6 +164,13 @@ export interface EntitySummary {
     string,
     { count: number; total_length: number }
   >;
+  /**
+   * How many entities matched the layer + DXF/ObjectName filters but were
+   * dropped because their Civil 3D `Style.Name` didn't contain the user's
+   * style keyword. Surfaced for the flagger so we can tell the user "I
+   * saw 13 pipes you didn't measure — they had a different style".
+   */
+  skipped_by_style?: number;
 }
 
 /** One compact entity record as returned by get_entities_on_layer. */
@@ -151,6 +193,16 @@ export interface EntityRecord {
   end_point?: number[];
   start_angle?: number;
   end_angle?: number;
+  /** Civil 3D `Style.Name` (e.g. "P: Sanitary Pipe", "P: Storm Str - 48''"). */
+  style_name?: string;
+  /** Civil 3D `PartSizeName` (e.g. "8.0 inch PVC Pipe"). */
+  part_size_name?: string;
+  /**
+   * Civil 3D `Description` (drafter-entered: '8" SDR 35', '24" HDPE',
+   * '48" DIA', etc.). Used as a fallback when PartSizeName is missing
+   * or ambiguous.
+   */
+  description?: string;
 }
 
 export interface LayerInfo {
@@ -195,7 +247,9 @@ export interface MeasurementIssue {
     | 'artifacts'
     | 'mixed_closed'
     | 'zero_quantity'
-    | 'ambiguous_diameter';
+    | 'ambiguous_diameter'
+    | 'style_filtered_zero'
+    | 'style_skipped_some';
   message: string;
   suggestedOptions: string[];
   metadata?: Record<string, unknown>;
@@ -209,6 +263,12 @@ export interface MeasurementResult {
   issues?: MeasurementIssue[];
   /** Diameter auto-detected from polyline global width (e.g. `'8"'`). */
   detectedDiameter?: string;
+  /**
+   * Material auto-detected from the Civil 3D part feature
+   * (PartSizeName / Description) on AECC pipes — e.g. `'PVC'`, `'HDPE'`,
+   * `'SDR 35'`. Undefined when the source pipes had no parseable material.
+   */
+  detectedMaterial?: string;
   /**
    * Additional pay items to spawn alongside the measured item. Produced
    * when auto-diameter detects multiple distinct standard diameters on

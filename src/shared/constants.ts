@@ -20,11 +20,16 @@ export const OBJECT_TYPE_MAP: Record<ObjectType, string> = {
  * the canonical name in OBJECT_TYPE_MAP. Keyed by ObjectType.
  * These are the values returned by `entity.ObjectName` — used for post-filter
  * checks after a SelectionSet returns entities.
+ *
+ * `pipe` includes `AeccDbStructure` so manholes/inlets riding the same layer
+ * pass the ObjectName filter. Structures don't have a Length so they
+ * contribute 0 to the LF total — they exist in the entity list and the
+ * `type_counts` summary but never inflate the linear quantity.
  */
 export const OBJECT_TYPE_ALIASES: Record<ObjectType, string[]> = {
   polyline: ['AcDbPolyline', 'AcDb2dPolyline', 'AcDb3dPolyline'],
   closedPolyline: ['AcDbPolyline', 'AcDb2dPolyline'],
-  pipe: ['AcDbPipe', 'AeccDbPipe'],
+  pipe: ['AcDbPipe', 'AeccDbPipe', 'AeccDbStructure'],
   hatch: ['AcDbHatch'],
   block: ['AcDbBlockReference'],
 };
@@ -38,14 +43,14 @@ export const OBJECT_TYPE_ALIASES: Record<ObjectType, string[]> = {
  * Comma-joined values act as an OR filter inside a single DXF code, e.g.
  * `'LWPOLYLINE,POLYLINE'` matches either 2D lightweight or heavy polylines.
  *
- * `pipe` falls back to plain polylines — Civil 3D pipe networks have no
- * standard DXF name that SelectionSet can filter on. When a user targets a
- * pipe-object layer the agent can widen to a full scan if needed.
+ * `pipe` targets Civil 3D pipe networks: `AECC_PIPE` for the pipes themselves
+ * and `AECC_STRUCTURE` for the manholes/inlets/structures along them.
+ * Verified against AutoCAD 2024 / Civil 3D 2024 selection-set filtering.
  */
 export const DXF_TYPE_NAMES: Record<ObjectType, string[]> = {
   polyline: ['LWPOLYLINE', 'POLYLINE'],
   closedPolyline: ['LWPOLYLINE', 'POLYLINE'],
-  pipe: ['LWPOLYLINE', 'POLYLINE'],
+  pipe: ['AECC_PIPE', 'AECC_STRUCTURE'],
   hatch: ['HATCH'],
   block: ['INSERT'],
 };
