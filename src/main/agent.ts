@@ -135,20 +135,15 @@ export async function* resolvePayItem(
           'mcp__autocad__get_entity_details',
           ...COSTESTDB_TOOL_NAMES,
         ],
-        // Pin to claude-sonnet-4-5 (the legacy Sonnet alias, which resolves
-        // to the dated snapshot claude-sonnet-4-5-20250929 per Anthropic's
-        // docs). We tried claude-sonnet-4-6 in v0.4.4 and it failed with
-        // "may not exist or you may not have access" against the Key Vault
-        // key. Whether that's a key-side access gap or an SDK regression
-        // (see https://github.com/anthropics/claude-code/issues/26408), 4-5
-        // is widely available and unblocks the resolution flow.
-        // `fallbackModel` only triggers on overload/unavailable, not on
-        // access-denied — so it can't paper over a model gap. Use Haiku
-        // as the overload fallback since it's the most under-loaded model.
-        // Bump back to 4-6 once the diagnostic (scripts/check-anthropic-
-        // access.py) confirms the key has access.
-        model: 'claude-sonnet-4-5',
-        fallbackModel: 'claude-haiku-4-5',
+        // Latest dateless Sonnet ID per Anthropic's docs. The Key Vault
+        // key has been verified (via scripts/test-agent-sdk.mjs) to have
+        // access to claude-sonnet-4-6 against api.anthropic.com. The
+        // "may not have access" errors we chased through v0.4.2-v0.4.5
+        // were all downstream symptoms of the proxy's /api route prefix
+        // returning 404 before the API was ever reached. Once host.json
+        // drops that prefix and the function redeploys, 4-6 works.
+        model: 'claude-sonnet-4-6',
+        fallbackModel: 'claude-sonnet-4-5',
         maxTurns: 10,
         // `debug: true` makes the CLI write verbose diagnostics to stderr.
         // Cheap to enable — these only surface when something goes wrong.
