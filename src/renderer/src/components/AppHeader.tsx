@@ -101,7 +101,13 @@ function VersionPill() {
     try {
       const result = await window.costEstimator.checkForUpdates();
       setCheck({ state: 'done', result });
-      if (result.status === 'up-to-date' || result.status === 'downloading') {
+      // Auto-clear only the quiet "you're on the latest" result. Keep
+      // update-available and downloading visible until the restart
+      // prompt appears (electron-updater shows that dialog when the
+      // download completes) so the user has continuous feedback that
+      // an update is in flight. Errors and disabled-feed states also
+      // stick so the user can act on them.
+      if (result.status === 'up-to-date') {
         clearTimer.current = setTimeout(() => setCheck({ state: 'idle' }), 6000);
       }
     } catch (e) {
@@ -119,6 +125,7 @@ function VersionPill() {
   if (!version) return null;
 
   const tooltip = renderCheckTooltip(check);
+  const indicator = renderCheckIndicator(check);
 
   return (
     <button
@@ -126,15 +133,54 @@ function VersionPill() {
       onClick={runCheck}
       disabled={check.state === 'checking'}
       title={tooltip ?? 'Click to check for updates'}
-      className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-medium text-white/80 transition-colors hover:bg-white/15 disabled:cursor-wait"
+      className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-medium text-white/80 transition-colors hover:bg-white/15 disabled:cursor-wait"
     >
       v{version}
       {check.state === 'checking' && <Loader2 className="h-3 w-3 animate-spin" />}
-      {check.state === 'done' && check.result?.status === 'update-available' && (
-        <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-hidden />
-      )}
+      {indicator}
     </button>
   );
+}
+
+function renderCheckIndicator(check: {
+  state: 'idle' | 'checking' | 'done';
+  result?: UpdateCheckResult;
+}): React.ReactNode {
+  if (check.state !== 'done' || !check.result) return null;
+  const r = check.result;
+  switch (r.status) {
+    case 'update-available':
+      return (
+        <span className="ml-0.5 inline-flex items-center gap-1 rounded bg-gold/20 px-1.5 py-px text-[10px] font-medium normal-case text-gold">
+          <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-hidden />
+          v{r.latestVersion} available
+        </span>
+      );
+    case 'downloading':
+      return (
+        <span className="ml-0.5 inline-flex items-center gap-1 rounded bg-gold/20 px-1.5 py-px text-[10px] font-medium normal-case text-gold">
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          Downloading v{r.latestVersion}…
+        </span>
+      );
+    case 'up-to-date':
+      return (
+        <span className="ml-0.5 text-[10px] font-medium normal-case text-success">
+          up to date
+        </span>
+      );
+    case 'error':
+      return (
+        <span className="ml-0.5 text-[10px] font-medium normal-case text-danger">
+          check failed
+        </span>
+      );
+    case 'check-running':
+    case 'disabled':
+      return null;
+    default:
+      return null;
+  }
 }
 
 function renderCheckTooltip(check: {
