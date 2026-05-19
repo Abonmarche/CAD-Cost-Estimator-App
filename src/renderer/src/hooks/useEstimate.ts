@@ -9,18 +9,29 @@ import { MEASUREMENT_UNITS } from '@shared/constants';
 import { buildPayItemDescription } from '@shared/presets';
 
 /**
- * High-level lifecycle hook that drives measure → price → export.
+ * Workflow lifecycle hook. Splits the estimating pipeline into three
+ * discrete user-driven steps:
  *
- * Strategy:
- *   1. Send pending items to main for deterministic measurement.
- *   2. As each `complete` item comes back, fetch unit price from CostEstDB.
- *   3. Once all items are complete or flagged, user can export.
+ *   1. measure()        — IPC-driven measurement against the open AutoCAD
+ *                          drawing. Sets quantity + status='complete' on
+ *                          each item. Does NOT price anything anymore.
+ *   2. priceAll()       — Walks every complete-but-unpriced item and asks
+ *                          CostEstDB for a unit price. Sets unitPrice,
+ *                          totalCost, priceSource, and marks
+ *                          pricingAttempted=true regardless of outcome.
+ *   3. exportEstimate() — Writes the Excel file via the main process.
+ *
+ * Earlier versions chained measurement → pricing automatically inside
+ * measure(). That was convenient but blurred the user's mental model
+ * (and made the "Generate estimate" button feel meaningless). v0.5.0
+ * separates them so each button click does one well-defined thing.
  */
 export function useEstimate(
   items: PayItem[],
   applyUpdate: (u: PayItemUpdate) => void,
 ) {
   const [running, setRunning] = useState(false);
+  const [pricing, setPricing] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const measure = useCallback(() => {
@@ -30,7 +41,7 @@ export function useEstimate(
     setRunning(true);
     const unsubscribe = window.costEstimator.measure(
       { items: pending },
-      async (update) => {
+      (update) => {
         if ('__done' in update && update.__done) {
           setRunning(false);
           unsubscribe();
@@ -43,38 +54,42 @@ export function useEstimate(
           return;
         }
 
-        const u = update as PayItemUpdate;
-        applyUpdate(u);
-
-        // Kick off pricing for newly-complete items (skip flagged — user
-        // will resolve first). Merge the measurement patch into the item
-        // before pricing so the description reflects auto-detected fields
-        // like the inferred diameter.
-        if (u.patch.status === 'complete' && u.patch.quantity !== null) {
-          const item = pending.find((p) => p.id === u.id);
-          if (item) {
-            const qty = u.patch.quantity ?? 0;
-            const measured = { ...item, ...u.patch };
-            void fetchPrice(measured, qty).then((patch) =>
-              applyUpdate({ id: u.id, patch }),
-            );
-          }
-        }
-
-        // Any spawned items (e.g. auto-diameter split) arrive already
-        // `complete` with their own quantity — price each one directly.
-        if (u.spawn) {
-          for (const spawned of u.spawn) {
-            const qty = spawned.quantity ?? 0;
-            if (qty > 0) {
-              void fetchPrice(spawned, qty).then((patch) =>
-                applyUpdate({ id: spawned.id, patch }),
-              );
-            }
-          }
-        }
+        // Apply the measurement patch. Pricing intentionally does NOT
+        // run here anymore — the user kicks it off explicitly via the
+        // "Generate estimate" button.
+        applyUpdate(update as PayItemUpdate);
       },
     );
+  }, [items, applyUpdate]);
+
+  /**
+   * Look up unit prices for every complete item that hasn't been priced
+   * yet (or whose previous lookup wasn't attempted). Idempotent — re-
+   * clicking only retries items still missing a successful lookup.
+   *
+   * Items where CostEstDB has no match keep `unitPrice: null` but get
+   * `pricingAttempted: true` so the workflow can advance to export.
+   */
+  const priceAll = useCallback(() => {
+    const targets = items.filter(
+      (i) =>
+        i.status === 'complete' &&
+        i.unitPrice === null &&
+        !i.pricingAttempted,
+    );
+    if (targets.length === 0) return;
+
+    setPricing(true);
+    Promise.allSettled(
+      targets.map(async (item) => {
+        const qty = item.quantity ?? 0;
+        const patch = await fetchPrice(item, qty);
+        applyUpdate({
+          id: item.id,
+          patch: { ...patch, pricingAttempted: true },
+        });
+      }),
+    ).finally(() => setPricing(false));
   }, [items, applyUpdate]);
 
   const exportEstimate = useCallback(async (payload: EstimateExport) => {
@@ -86,7 +101,14 @@ export function useEstimate(
     }
   }, []);
 
-  return { running, exporting, measure, exportEstimate };
+  return {
+    running,
+    pricing,
+    exporting,
+    measure,
+    priceAll,
+    exportEstimate,
+  };
 }
 
 async function fetchPrice(
