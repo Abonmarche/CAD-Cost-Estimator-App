@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  Check,
   Loader2,
   Sparkles,
   X,
@@ -14,6 +15,63 @@ import {
 } from '@shared/constants';
 
 import { AssistantMarkdown } from './AssistantMarkdown';
+
+/**
+ * Structured patch the agent emits inside a fenced
+ * ```cost-estimator-suggestion JSON block. The renderer parses these
+ * out of `flagMessage` and renders an Apply button per suggestion.
+ */
+interface AgentSuggestion {
+  label: string;
+  patch: Partial<PayItem>;
+}
+
+const SUGGESTION_FENCE =
+  /```cost-estimator-suggestion\s*\n([\s\S]*?)\n?```/g;
+
+/**
+ * Pull the agent's fenced ```cost-estimator-suggestion blocks out of a
+ * markdown blob. Returns the leftover text (for the chat panel) and a
+ * list of structured suggestions (rendered as Apply buttons).
+ *
+ * Malformed JSON blocks are dropped silently — losing one suggestion is
+ * better than confronting the user with a raw JSON dump on the screen.
+ * The bug is then visible on the agent side via the dev console.
+ */
+function parseAgentSuggestions(markdown: string): {
+  cleanText: string;
+  suggestions: AgentSuggestion[];
+} {
+  const suggestions: AgentSuggestion[] = [];
+
+  // Reset the global regex's lastIndex between calls — JS shares it.
+  SUGGESTION_FENCE.lastIndex = 0;
+  for (const match of markdown.matchAll(SUGGESTION_FENCE)) {
+    try {
+      const parsed = JSON.parse(match[1].trim()) as unknown;
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        'label' in parsed &&
+        'patch' in parsed &&
+        typeof (parsed as { label: unknown }).label === 'string' &&
+        (parsed as { patch: unknown }).patch &&
+        typeof (parsed as { patch: unknown }).patch === 'object'
+      ) {
+        suggestions.push({
+          label: String((parsed as { label: string }).label),
+          patch: (parsed as { patch: Partial<PayItem> }).patch,
+        });
+      }
+    } catch {
+      // Malformed block — drop it. The text it would have lived in is
+      // also stripped so the user doesn't see a stray code fence.
+    }
+  }
+
+  const cleanText = markdown.replace(SUGGESTION_FENCE, '').trim();
+  return { cleanText, suggestions };
+}
 
 interface Props {
   item: PayItem;
@@ -170,6 +228,27 @@ export function PayItemRow({
             const n = Number(manualQty);
             if (!Number.isFinite(n) || n < 0) return;
             onSetManual(item.id, n);
+            setManualMode(false);
+            setManualQty('');
+          }}
+          onApplySuggestion={(patch) => {
+            // Apply the agent's structured suggestion: write the
+            // patched fields to the card, clear the flag state, and
+            // reset measurement so the normal Quantify flow picks
+            // this item up cleanly. Any prior chat input is dropped
+            // since the user just took an action.
+            onUpdate(item.id, {
+              ...patch,
+              status: 'pending',
+              flagMessage: null,
+              flagOptions: null,
+              quantity: null,
+              unitPrice: null,
+              totalCost: null,
+              priceSource: undefined,
+              resolutionNotes: undefined,
+            });
+            setChatInput('');
             setManualMode(false);
             setManualQty('');
           }}
@@ -543,6 +622,7 @@ function FlaggedPanel({
   setChatInput,
   onResolve,
   onSetManual,
+  onApplySuggestion,
 }: {
   item: PayItem;
   working: boolean;
@@ -554,7 +634,17 @@ function FlaggedPanel({
   setChatInput: (v: string) => void;
   onResolve: (text: string) => void;
   onSetManual: () => void;
+  onApplySuggestion: (patch: Partial<PayItem>) => void;
 }) {
+  // Extract structured agent suggestions out of the markdown blob so we
+  // can render them as Apply buttons. The fenced JSON blocks are
+  // stripped from the displayed text so the user doesn't see them as
+  // raw code.
+  const { cleanText, suggestions } = useMemo(
+    () => parseAgentSuggestions(item.flagMessage ?? ''),
+    [item.flagMessage],
+  );
+
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-amber/30 bg-amber-50">
       <div className="flex items-center gap-2 bg-sapphire px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white">
@@ -567,18 +657,38 @@ function FlaggedPanel({
         {working && <span className="ml-2 normal-case text-white/80">working…</span>}
       </div>
       <div className="space-y-3 p-4">
-        <AssistantMarkdown source={item.flagMessage} />
+        <AssistantMarkdown source={cleanText} />
 
         {working ? (
           // Resolution is in flight. Keep the panel visible so the user
-          // doesn't lose context, but disable the controls and show what
-          // the assistant is doing instead of the quick-pick buttons.
+          // doesn't lose context, but disable the controls and show
+          // what the assistant is doing.
           <div className="flex items-center gap-2 rounded-lg border border-amber-600/20 bg-white px-3 py-2 text-sm text-slate">
             <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-sapphire" />
-            <span>Estimator Assistant is thinking — checking layers and pricing data…</span>
+            <span>Estimator Assistant is investigating the drawing…</span>
           </div>
         ) : (
           <>
+            {/* Agent's structured suggestions — primary action. One
+                click applies the patch and closes the chat panel. */}
+            {!manualMode && suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={`${s.label}-${i}`}
+                    type="button"
+                    onClick={() => onApplySuggestion(s.patch)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-success/40 bg-success/10 px-3 py-1.5 text-xs font-medium text-success transition-colors hover:bg-success/20"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Legacy free-form quick-picks (e.g. "Set quantity
+                manually" added on error / fallback). */}
             {!manualMode && item.flagOptions && item.flagOptions.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {item.flagOptions.map((opt) => (
@@ -599,6 +709,7 @@ function FlaggedPanel({
                 ))}
               </div>
             )}
+
             {manualMode ? (
               <div className="flex flex-wrap gap-2">
                 <input
