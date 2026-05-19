@@ -9,8 +9,15 @@
  *
  * Token shape we accept:
  *   - aud = api://<LLM_API_APP_ID>  (the LLM API app registration)
- *   - iss = https://login.microsoftonline.com/<TENANT_ID>/v2.0
+ *   - iss = https://login.microsoftonline.com/<TENANT_ID>/v2.0  (v2.0 tokens)
+ *     OR
+ *     iss = https://sts.windows.net/<TENANT_ID>/                (v1.0 tokens)
  *   - signature verified against the tenant's published JWKS
+ *
+ * Why accept both: the API app registration's `requestedAccessTokenVersion`
+ * defaults to null (= v1.0). MSAL respects the API's preference, so the
+ * desktop currently ships v1.0 tokens. We accept v2.0 too so a future flip
+ * to `requestedAccessTokenVersion: 2` is a zero-downtime config change.
  *
  * Both `x-api-key` (Agent-SDK path) and `Authorization: Bearer` (direct
  * HTTP clients, like our smoke-test curl) are accepted. Returns the
@@ -78,13 +85,20 @@ export async function validateToken(headers: Headers): Promise<ValidatedClaims> 
     throw new Error('TENANT_ID or LLM_API_APP_ID app setting is missing');
   }
   const expectedAudience = `api://${apiAppId}`;
-  const expectedIssuer = `https://login.microsoftonline.com/${tenantId}/v2.0`;
+  // Accept both v1.0 and v2.0 issuers. v1.0 is what MSAL currently ships
+  // because the API app reg has `requestedAccessTokenVersion: null` (the
+  // Entra default). Bumping the API app reg to v2 in the future is then a
+  // pure config change with no proxy redeploy required.
+  const expectedIssuers = [
+    `https://login.microsoftonline.com/${tenantId}/v2.0`,
+    `https://sts.windows.net/${tenantId}/`,
+  ];
 
   let payload: JWTPayload;
   try {
     const result = await jwtVerify(token, getJwks(), {
       audience: expectedAudience,
-      issuer: expectedIssuer,
+      issuer: expectedIssuers,
     });
     payload = result.payload;
   } catch (err) {
