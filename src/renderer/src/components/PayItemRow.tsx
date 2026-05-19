@@ -13,6 +13,8 @@ import {
   OBJECT_TYPE_OPTIONS,
 } from '@shared/constants';
 
+import { AssistantMarkdown } from './AssistantMarkdown';
+
 interface Props {
   item: PayItem;
   index: number;
@@ -565,9 +567,7 @@ function FlaggedPanel({
         {working && <span className="ml-2 normal-case text-white/80">working…</span>}
       </div>
       <div className="space-y-3 p-4">
-        <p className="text-sm leading-relaxed text-charcoal">
-          {item.flagMessage}
-        </p>
+        <AssistantMarkdown source={item.flagMessage} />
 
         {working ? (
           // Resolution is in flight. Keep the panel visible so the user
