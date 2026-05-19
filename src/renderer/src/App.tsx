@@ -58,10 +58,8 @@ function AppMain() {
     resolveFlag,
     setManualQuantity,
   } = usePayItems();
-  const { running, exporting, measure, exportEstimate } = useEstimate(
-    items,
-    applyUpdate,
-  );
+  const { running, pricing, exporting, measure, priceAll, exportEstimate } =
+    useEstimate(items, applyUpdate);
 
   const counts = useMemo(() => {
     const complete = items.filter((i) => i.status === 'complete').length;
@@ -69,6 +67,16 @@ function AppMain() {
     const pending = items.filter((i) => i.status === 'pending').length;
     const processing = items.filter((i) => i.status === 'processing').length;
     const errored = items.filter((i) => i.status === 'error').length;
+    // Items measured but not yet sent through CostEstDB. Drives the
+    // "Generate estimate" button — once all complete items have either
+    // a price OR a pricingAttempted flag, the workflow advances to
+    // Export.
+    const priceable = items.filter(
+      (i) =>
+        i.status === 'complete' &&
+        i.unitPrice === null &&
+        !i.pricingAttempted,
+    ).length;
     const total = items.reduce(
       (sum, i) => sum + (i.quantity ?? 0) * (i.unitPrice ?? 0),
       0,
@@ -79,6 +87,7 @@ function AppMain() {
       pending,
       processing,
       errored,
+      priceable,
       total,
     };
   }, [items]);
@@ -150,10 +159,13 @@ function AppMain() {
         flaggedCount={counts.flagged}
         processingCount={counts.processing}
         completeCount={counts.complete}
+        priceableCount={counts.priceable}
         erroredCount={counts.errored}
         running={running}
+        pricing={pricing}
         exporting={exporting}
         onMeasure={measure}
+        onPrice={priceAll}
         onExport={handleExport}
       />
     </div>

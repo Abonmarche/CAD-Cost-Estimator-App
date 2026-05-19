@@ -105,6 +105,14 @@ export interface PayItem extends PayItemPreset {
 
   // Pricing provenance (which CostEstDB project the price came from)
   priceSource?: string;
+  /**
+   * True once CostEstDB has been queried for this item, regardless of
+   * whether a match was found. Used by the workflow footer to
+   * differentiate "needs pricing" from "priced but CostEstDB had no
+   * match" — both have `unitPrice === null`, but only the first should
+   * keep the button stuck on "Generate estimate."
+   */
+  pricingAttempted?: boolean;
   /** Free-form error text when status = 'error'. */
   errorMessage?: string;
 }

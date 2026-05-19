@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CircleDollarSign,
+  Download,
   Layers,
   Loader2,
   Plus,
@@ -11,21 +12,20 @@ import {
 /**
  * Single-button workflow footer.
  *
- * The previous version had three clickable pills (Setup / Quantify /
- * Estimate) with a `canAdvance` state machine. That was confusing in
- * practice: clicking Apply on an agent suggestion reset an item to
- * pending, which left the Quantify button disabled because the state
- * machine had already moved past quantification — the only way out was
- * to click the green-checked Setup pill to "go back," which read like
- * decoration rather than a control.
+ * The button label + onClick are derived purely from the current item
+ * counts — there's no state machine, no "go back" affordance, no
+ * advance/retreat. Whatever needs doing next is what the button does.
  *
- * The new model: ONE primary button on the right whose label and
- * onClick are derived purely from the current item counts. Whatever
- * needs doing next is what the button does. No state machine, no
- * "go back" affordance, no advance/retreat — just "do the next thing."
+ * The workflow has three discrete user-driven steps:
  *
- * Status text on the left explains *why* the button shows what it does
- * (especially when it's disabled — e.g. "Resolve 1 flagged item first").
+ *   Quantify         — runs measurement against the AutoCAD drawing.
+ *   Generate estimate— runs CostEstDB price lookups on measured items.
+ *   Export           — writes the Excel file.
+ *
+ * Each step is a separate button press, with its own loading state and
+ * status text. Earlier versions chained quantify → price automatically
+ * inside the same click, which made "Generate estimate" feel meaningless
+ * (the work was already done by the time you saw it).
  */
 
 interface Props {
@@ -34,10 +34,19 @@ interface Props {
   flaggedCount: number;
   processingCount: number;
   completeCount: number;
+  /**
+   * Items that are 'complete' (measured) but haven't been through
+   * CostEstDB yet (no unitPrice AND no pricingAttempted). When > 0 the
+   * button offers "Generate estimate"; when 0 (and at least one item is
+   * complete) it offers "Export".
+   */
+  priceableCount: number;
   erroredCount: number;
   running: boolean;
+  pricing: boolean;
   exporting: boolean;
   onMeasure: () => void;
+  onPrice: () => void;
   onExport: () => void;
 }
 
@@ -52,6 +61,9 @@ function chooseAction(p: Props): Action {
   if (p.running) {
     return { label: 'Measuring…', icon: Loader2, onClick: null, spinning: true };
   }
+  if (p.pricing) {
+    return { label: 'Looking up prices…', icon: Loader2, onClick: null, spinning: true };
+  }
   if (p.exporting) {
     return { label: 'Exporting…', icon: Loader2, onClick: null, spinning: true };
   }
@@ -60,14 +72,11 @@ function chooseAction(p: Props): Action {
   }
   // Flagged items need user interaction in the chat panel before they
   // can be measured. Block the primary action so the user looks at the
-  // flagged card rather than re-clicking Quantify.
+  // flagged card rather than re-clicking.
   if (p.flaggedCount > 0) {
     return { label: 'Resolve flagged items first', icon: Sparkles, onClick: null };
   }
-  // Anything pending? That's the next thing to do — measure them. This
-  // is the path the user hit yesterday: after Applying a suggestion,
-  // status flips back to pending, so the button correctly re-offers
-  // Quantify.
+  // Step 1: any item still needs measuring.
   if (p.pendingCount > 0) {
     return {
       label: `Quantify ${p.pendingCount} item${p.pendingCount === 1 ? '' : 's'}`,
@@ -75,20 +84,30 @@ function chooseAction(p: Props): Action {
       onClick: p.onMeasure,
     };
   }
-  // Everything is measured cleanly — ready to price + export.
-  if (p.completeCount > 0) {
+  // Step 2: everything measured, but at least one item hasn't had a
+  // pricing lookup yet.
+  if (p.priceableCount > 0) {
     return {
       label: 'Generate estimate',
       icon: CircleDollarSign,
+      onClick: p.onPrice,
+    };
+  }
+  // Step 3: everything measured AND pricing has been attempted on each
+  // item. Ready to write the Excel.
+  if (p.completeCount > 0) {
+    return {
+      label: 'Export',
+      icon: Download,
       onClick: p.onExport,
     };
   }
-  // Everything errored out — nothing to do until the user fixes cards.
   return { label: 'Fix errors to continue', icon: Sparkles, onClick: null };
 }
 
 function buildStatus(p: Props): string {
   if (p.running) return 'Measuring quantities from AutoCAD…';
+  if (p.pricing) return 'Querying CostEstDB for unit prices…';
   if (p.exporting) return 'Saving Excel estimate…';
   if (p.itemCount === 0) {
     return 'Add a pay item from the library to begin.';
@@ -97,13 +116,19 @@ function buildStatus(p: Props): string {
     return `${p.flaggedCount} item${p.flaggedCount === 1 ? '' : 's'} need${p.flaggedCount === 1 ? 's' : ''} review — see the Estimator Assistant on the card above.`;
   }
   if (p.pendingCount > 0) {
-    const others = p.completeCount > 0 ? ` · ${p.completeCount} already priced` : '';
-    return `${p.pendingCount} item${p.pendingCount === 1 ? '' : 's'} ready to quantify${others}.`;
+    const measured = p.completeCount > 0 ? ` · ${p.completeCount} already measured` : '';
+    return `${p.pendingCount} item${p.pendingCount === 1 ? '' : 's'} ready to quantify${measured}.`;
+  }
+  if (p.priceableCount > 0) {
+    return `${p.completeCount} item${p.completeCount === 1 ? '' : 's'} measured — ready to price.`;
   }
   if (p.erroredCount === p.itemCount) {
     return `${p.erroredCount} item${p.erroredCount === 1 ? '' : 's'} could not be measured. Adjust the cards above and retry.`;
   }
-  return `${p.completeCount} of ${p.itemCount} item${p.itemCount === 1 ? '' : 's'} priced — ready to export.`;
+  if (p.completeCount > 0) {
+    return `${p.completeCount} item${p.completeCount === 1 ? '' : 's'} priced — ready to export.`;
+  }
+  return '';
 }
 
 export function WorkflowFooter(props: Props) {
