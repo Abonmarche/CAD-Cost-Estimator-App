@@ -147,9 +147,16 @@ export function PayItemRow({
         </div>
       )}
 
-      {item.status === 'flagged' && (
+      {/* Keep the Estimator Assistant panel mounted across the flagged →
+          processing transition so the user sees their prior context plus
+          a "thinking" indicator while the agent works, instead of the
+          panel disappearing entirely. Reappears on the eventual error or
+          stays visible until status flips to 'complete'. */}
+      {(item.status === 'flagged' ||
+        (item.status === 'processing' && item.flagMessage)) && (
         <FlaggedPanel
           item={item}
+          working={item.status === 'processing'}
           manualMode={manualMode}
           setManualMode={setManualMode}
           manualQty={manualQty}
@@ -525,6 +532,7 @@ function CompleteFooter({ item }: { item: PayItem }) {
 
 function FlaggedPanel({
   item,
+  working,
   manualMode,
   setManualMode,
   manualQty,
@@ -535,6 +543,7 @@ function FlaggedPanel({
   onSetManual,
 }: {
   item: PayItem;
+  working: boolean;
   manualMode: boolean;
   setManualMode: (b: boolean) => void;
   manualQty: string;
@@ -547,69 +556,87 @@ function FlaggedPanel({
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-amber/30 bg-amber-50">
       <div className="flex items-center gap-2 bg-sapphire px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white">
-        <Sparkles className="h-3.5 w-3.5" />
+        {working ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Sparkles className="h-3.5 w-3.5" />
+        )}
         Estimator Assistant
+        {working && <span className="ml-2 normal-case text-white/80">working…</span>}
       </div>
       <div className="space-y-3 p-4">
         <p className="text-sm leading-relaxed text-charcoal">
           {item.flagMessage}
         </p>
-        {!manualMode && item.flagOptions && item.flagOptions.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {item.flagOptions.map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => {
-                  if (/set quantity manually/i.test(opt)) {
-                    setManualMode(true);
-                  } else {
-                    onResolve(opt);
-                  }
-                }}
-                className="chip border border-amber-600/30 bg-white text-amber-600 transition-colors hover:bg-amber-50"
-              >
-                {opt}
-              </button>
-            ))}
-          </div>
-        )}
-        {manualMode ? (
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={manualQty}
-              onChange={(e) => setManualQty(e.target.value)}
-              placeholder="Enter quantity"
-              className="field-input flex-1"
-            />
-            <button
-              type="button"
-              onClick={onSetManual}
-              className="btn-primary"
-            >
-              Set
-            </button>
-            <button
-              type="button"
-              onClick={() => setManualMode(false)}
-              className="btn-secondary"
-            >
-              Cancel
-            </button>
+
+        {working ? (
+          // Resolution is in flight. Keep the panel visible so the user
+          // doesn't lose context, but disable the controls and show what
+          // the assistant is doing instead of the quick-pick buttons.
+          <div className="flex items-center gap-2 rounded-lg border border-amber-600/20 bg-white px-3 py-2 text-sm text-slate">
+            <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-sapphire" />
+            <span>Estimator Assistant is thinking — checking layers and pricing data…</span>
           </div>
         ) : (
-          <input
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && chatInput.trim()) {
-                onResolve(chatInput.trim());
-                setChatInput('');
-              }
-            }}
-            placeholder="Or type a response to the Estimator Assistant…"
-            className="field-input"
-          />
+          <>
+            {!manualMode && item.flagOptions && item.flagOptions.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {item.flagOptions.map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      if (/set quantity manually/i.test(opt)) {
+                        setManualMode(true);
+                      } else {
+                        onResolve(opt);
+                      }
+                    }}
+                    className="chip border border-amber-600/30 bg-white text-amber-600 transition-colors hover:bg-amber-50"
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+            {manualMode ? (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={manualQty}
+                  onChange={(e) => setManualQty(e.target.value)}
+                  placeholder="Enter quantity"
+                  className="field-input flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={onSetManual}
+                  className="btn-primary"
+                >
+                  Set
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualMode(false)}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && chatInput.trim()) {
+                    onResolve(chatInput.trim());
+                    setChatInput('');
+                  }
+                }}
+                placeholder="Or type a response to the Estimator Assistant…"
+                className="field-input"
+              />
+            )}
+          </>
         )}
       </div>
     </div>
