@@ -98,6 +98,22 @@ az storage blob upload `
   --overwrite true | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "installer upload failed" }
 
+# Stable alias blob so external links (e.g. the App Hub download page) don't
+# have to be updated every release. Same bytes as the versioned installer,
+# uploaded with no-cache so first-time installers always pull the current
+# version. The versioned blob above remains the canonical artifact for
+# electron-updater (latest.yml references it by version).
+$aliasName = 'Cost-Estimator-latest-setup.exe'
+az storage blob upload `
+  --account-name $StorageAccount `
+  --account-key  $StorageKey `
+  --container-name $StorageContainer `
+  --file $installer `
+  --name $aliasName `
+  --content-cache-control 'no-cache, max-age=0' `
+  --overwrite true | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "latest-alias installer upload failed" }
+
 az storage blob upload `
   --account-name $StorageAccount `
   --account-key  $StorageKey `
@@ -121,5 +137,6 @@ if ($LASTEXITCODE -ne 0) { throw "latest.yml upload failed" }
 $baseUrl = "https://$StorageAccount.blob.core.windows.net/$StorageContainer"
 Write-Host ""
 Write-Host "Released v$version" -ForegroundColor Green
-Write-Host "  Installer: $baseUrl/$([uri]::EscapeUriString((Split-Path -Leaf $installer)))"
-Write-Host "  Manifest:  $baseUrl/latest.yml"
+Write-Host "  Installer:     $baseUrl/$([uri]::EscapeUriString((Split-Path -Leaf $installer)))"
+Write-Host "  Latest alias:  $baseUrl/$aliasName"
+Write-Host "  Manifest:      $baseUrl/latest.yml"
