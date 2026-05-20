@@ -97,6 +97,7 @@ function measureCore(item: PayItem): MeasurementResult {
       dxf_types: dxfTypes,
       object_name_filter: aliases,
       closed_filter: closedFilter,
+      style_keyword: item.styleKeyword,
     });
     perLayer.push({ layer: layerName, result });
   }
@@ -129,7 +130,22 @@ function measureCore(item: PayItem): MeasurementResult {
     item.objectType === 'polyline' &&
     (diameterGroups?.length ?? 0) === 0;
 
+  // Auto-detect diameter + material from Civil 3D part features (AeccDbPipe
+  // PartSizeName / Description) when enabled on a `pipe` preset. Mirrors the
+  // polyline-width path: primary item gets the largest bucket, additional
+  // (diameter, material) combos spawn as new rows.
+  const partGroups =
+    item.autoFromPartFeature && item.objectType === 'pipe'
+      ? groupByPartAttributes(entities)
+      : null;
+  const noPartsDetected =
+    item.autoFromPartFeature === true &&
+    item.objectType === 'pipe' &&
+    (partGroups?.length ?? 0) === 0 &&
+    summary.total_entities > 0;
+
   let detectedDiameter: string | undefined;
+  let detectedMaterial: string | undefined;
   let spawnItems: PayItem[] | undefined;
   let quantityOverride: number | undefined;
   if (diameterGroups && diameterGroups.length >= 1) {
@@ -140,6 +156,14 @@ function measureCore(item: PayItem): MeasurementResult {
       quantityOverride = round2(primary.totalLength);
       spawnItems = rest.map((g) => spawnItemForDiameter(item, g));
     }
+  } else if (partGroups && partGroups.length >= 1) {
+    const [primary, ...rest] = partGroups;
+    detectedDiameter = `${primary.inches}"`;
+    detectedMaterial = primary.material;
+    if (rest.length > 0) {
+      quantityOverride = round2(primary.totalLength);
+      spawnItems = rest.map((g) => spawnItemForPartGroup(item, g));
+    }
   }
 
   const quantity = quantityOverride ?? computeQuantity(item, summary);
@@ -149,6 +173,7 @@ function measureCore(item: PayItem): MeasurementResult {
     entities,
     siblingLayers,
     autoDiameterWidthsMissing: noWidthsDetected,
+    autoPartsMissing: noPartsDetected,
     emptyLayers,
   });
 
@@ -160,6 +185,7 @@ function measureCore(item: PayItem): MeasurementResult {
       details: summary,
       issues: [issue],
       detectedDiameter,
+      detectedMaterial,
       spawnItems,
     };
   }
@@ -178,6 +204,7 @@ function measureCore(item: PayItem): MeasurementResult {
         },
       ],
       detectedDiameter,
+      detectedMaterial,
       spawnItems,
     };
   }
@@ -188,6 +215,7 @@ function measureCore(item: PayItem): MeasurementResult {
     unit: MEASUREMENT_UNITS[item.measurement],
     details: summary,
     detectedDiameter,
+    detectedMaterial,
     spawnItems,
   };
 }
@@ -259,6 +287,118 @@ function spawnItemForDiameter(parent: PayItem, g: DiameterGroup): PayItem {
   };
 }
 
+/**
+ * A (diameter, material) bucket of AECC pipe entities, sorted by total
+ * length. Used by `groupByPartAttributes` to split a layer that mixes
+ * e.g. 8" PVC sanitary + 24" HDPE storm into independent pay items.
+ */
+export interface PartGroup {
+  inches: number;
+  material: string;
+  totalLength: number;
+  totalCount: number;
+}
+
+/**
+ * Walk the entities returned for a `pipe` measurement and group every
+ * AeccDbPipe by its catalog (diameter, material) extracted from
+ * PartSizeName / Description. Structures are skipped — they don't
+ * contribute to LF anyway, and their part naming differs.
+ *
+ * Used for the Civil 3D analogue of `groupByStandardDiameter`. When the
+ * resulting list has length >= 2, the caller will spawn additional pay
+ * items for each non-primary bucket.
+ */
+export function groupByPartAttributes(entities: EntityRecord[]): PartGroup[] {
+  const byKey = new Map<
+    string,
+    { inches: number; material: string; totalLength: number; totalCount: number }
+  >();
+  for (const ent of entities) {
+    // Only AECC pipes contribute. Structures have no Length and their
+    // PartSizeName format is different (e.g. "48 inch Cylindrical Structure").
+    if (ent.type !== 'AeccDbPipe') continue;
+    if (typeof ent.length !== 'number') continue;
+    const { inches, material } = parsePartFields(ent);
+    if (inches === undefined) continue;
+    const mat = material ?? 'Unknown';
+    const key = `${inches}|${mat}`;
+    const existing =
+      byKey.get(key) ??
+      { inches, material: mat, totalLength: 0, totalCount: 0 };
+    existing.totalLength += ent.length;
+    existing.totalCount += 1;
+    byKey.set(key, existing);
+  }
+  return Array.from(byKey.values()).sort(
+    (a, b) => b.totalLength - a.totalLength,
+  );
+}
+
+/**
+ * Run the same regex extraction as `helpers.extractPartAttributes` against
+ * an already-summarised `EntityRecord`. We mirror it here rather than
+ * importing the COM-touching helper because COM access can't happen
+ * after the measurement loop returns.
+ */
+function parsePartFields(ent: EntityRecord): {
+  inches?: number;
+  material?: string;
+} {
+  if (ent.part_size_name) {
+    const m = ent.part_size_name.match(
+      /^\s*([\d.]+)\s*inch\s+([A-Za-z][\w\s-]*?)(?:\s+(?:Pipe|Structure))?\s*$/i,
+    );
+    if (m) {
+      const inches = Number.parseFloat(m[1]);
+      const material = m[2].trim();
+      if (Number.isFinite(inches) && material.length > 0) {
+        return { inches: Math.round(inches), material };
+      }
+    }
+  }
+  if (ent.description) {
+    const m = ent.description.match(/^\s*(\d+)\s*"\s*(.*?)\s*$/);
+    if (m) {
+      const inches = Number.parseInt(m[1], 10);
+      const material = m[2].trim();
+      if (Number.isFinite(inches)) {
+        return {
+          inches,
+          material: material.length > 0 ? material : undefined,
+        };
+      }
+    }
+  }
+  return {};
+}
+
+/**
+ * Build a complete pay item for a non-dominant (diameter, material)
+ * bucket out of a Civil 3D pipe measurement. Mirrors
+ * `spawnItemForDiameter` but also pins the material so pricing queries
+ * the right CostEstDB row. The auto-from-parts flag is dropped so the
+ * spawn isn't re-split when re-measured.
+ */
+function spawnItemForPartGroup(parent: PayItem, g: PartGroup): PayItem {
+  return {
+    ...parent,
+    id: makeSpawnId(),
+    diameter: `${g.inches}"`,
+    material: g.material === 'Unknown' ? parent.material : g.material,
+    autoFromPartFeature: false,
+    status: 'complete',
+    quantity: round2(g.totalLength),
+    unitPrice: null,
+    totalCost: null,
+    flagMessage: null,
+    flagOptions: null,
+    priceSource: undefined,
+    resolutionNotes: undefined,
+    errorMessage: undefined,
+  };
+}
+
 /** Id for spawned items — scoped here so the renderer can trust uniqueness. */
 function makeSpawnId(): string {
   return `item_${Math.random().toString(36).slice(2, 10)}`;
@@ -277,6 +417,9 @@ function toUpdate(
   const diameterPatch = result.detectedDiameter
     ? { diameter: result.detectedDiameter }
     : {};
+  const materialPatch = result.detectedMaterial
+    ? { material: result.detectedMaterial }
+    : {};
   const spawn = result.spawnItems && result.spawnItems.length > 0
     ? { spawn: result.spawnItems }
     : {};
@@ -290,6 +433,7 @@ function toUpdate(
         flagMessage: issue.message,
         flagOptions: issue.suggestedOptions,
         ...diameterPatch,
+        ...materialPatch,
       },
       ...spawn,
     };
@@ -302,6 +446,7 @@ function toUpdate(
       flagMessage: null,
       flagOptions: null,
       ...diameterPatch,
+      ...materialPatch,
     },
     ...spawn,
   };

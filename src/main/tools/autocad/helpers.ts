@@ -56,6 +56,84 @@ export function variantToArray(v: unknown): number[] | undefined {
 }
 
 /**
+ * Read the Civil 3D `Style.Name` off an AECC entity. The Style property
+ * itself returns a sub-COM object (CDispatch proxy) whose `Name` is the
+ * style's display string — e.g. "P: Sanitary Pipe", "P: Storm Str".
+ *
+ * Returns undefined for any non-AECC entity (where Style isn't exposed)
+ * or when the proxy chain throws. Style names are what the renderer
+ * uses to differentiate sanitary vs storm on a shared P-UTIL layer.
+ */
+export function readStyleName(entity: unknown): string | undefined {
+  const style = safeGet<Record<string, unknown>>(entity, 'Style');
+  if (!style) return undefined;
+  const name = safeGet<string>(style, 'Name');
+  return typeof name === 'string' && name.length > 0 ? name : undefined;
+}
+
+/**
+ * Pull diameter (inches, as a number) + material (string) off a Civil 3D
+ * pipe-network entity. Prefers `PartSizeName` (catalog-generated, well-
+ * structured) and falls back to `Description` (drafter-entered).
+ *
+ * Examples:
+ *   PartSizeName "8.0 inch PVC Pipe"          -> {inches: 8,  material: "PVC"}
+ *   PartSizeName "24 inch HDPE Pipe"          -> {inches: 24, material: "HDPE"}
+ *   PartSizeName "48 inch Cylindrical Structure" -> {inches: 48, material: "Cylindrical"}
+ *   Description  "8\" SDR 35"                 -> {inches: 8,  material: "SDR 35"}
+ *   Description  "24\" HDPE"                  -> {inches: 24, material: "HDPE"}
+ *
+ * Returns an empty object when nothing parseable was found. The caller
+ * decides whether to flag the item.
+ */
+export function extractPartAttributes(
+  entity: unknown,
+): { inches?: number; material?: string } {
+  const partSize = safeGet<string>(entity, 'PartSizeName');
+  const description = safeGet<string>(entity, 'Description');
+
+  // 1) PartSizeName — Civil 3D catalog format. Highly regular.
+  if (partSize) {
+    const m = partSize.match(/^\s*([\d.]+)\s*inch\s+([A-Za-z][\w\s-]*?)(?:\s+(?:Pipe|Structure))?\s*$/i);
+    if (m) {
+      const inches = Number.parseFloat(m[1]);
+      const material = m[2].trim();
+      if (Number.isFinite(inches) && material.length > 0) {
+        return { inches: Math.round(inches), material };
+      }
+    }
+  }
+  // 2) Description — drafter freeform. Pull diameter from a leading `\d"`,
+  // then take the remainder as the material spec.
+  if (description) {
+    const m = description.match(/^\s*(\d+)\s*"\s*(.*?)\s*$/);
+    if (m) {
+      const inches = Number.parseInt(m[1], 10);
+      const material = m[2].trim();
+      if (Number.isFinite(inches)) {
+        return {
+          inches,
+          material: material.length > 0 ? material : undefined,
+        };
+      }
+    }
+    // Pure size with no quotes (rare): "48 DIA"
+    const m2 = description.match(/^\s*(\d+)\s+(.*?)\s*$/);
+    if (m2) {
+      const inches = Number.parseInt(m2[1], 10);
+      const material = m2[2].trim();
+      if (Number.isFinite(inches)) {
+        return {
+          inches,
+          material: material.length > 0 ? material : undefined,
+        };
+      }
+    }
+  }
+  return {};
+}
+
+/**
  * Extract a compact summary of an entity — the equivalent of the Python
  * `_extract_summary_props`. Used when listing many entities on a layer.
  */
@@ -67,13 +145,33 @@ export function extractSummaryProps(entity: unknown): EntityRecord {
     type: objName,
   };
 
-  // Length (polylines, lines, arcs, splines, pipes)
-  const length = safeGet<number>(e, 'Length');
-  if (typeof length === 'number') info.length = round4(length);
+  // Length. Civil 3D AeccDbPipe exposes `Length2D` (horizontal pipe length)
+  // — that's what we want for LF. Standard AutoCAD entities use `Length`.
+  // Try Length2D first, fall back to Length3DCenterToCenter, then Length.
+  if (objName === 'AeccDbPipe') {
+    const l2 =
+      safeGet<number>(e, 'Length2D') ??
+      safeGet<number>(e, 'Length3DCenterToCenter') ??
+      safeGet<number>(e, 'Length');
+    if (typeof l2 === 'number') info.length = round4(l2);
+  } else {
+    const length = safeGet<number>(e, 'Length');
+    if (typeof length === 'number') info.length = round4(length);
+  }
 
   // Area (polylines, circles, hatches, regions)
   const area = safeGet<number>(e, 'Area');
   if (typeof area === 'number') info.area = round4(area);
+
+  // Civil 3D pipe-network properties.
+  if (objName === 'AeccDbPipe' || objName === 'AeccDbStructure') {
+    const styleName = readStyleName(e);
+    if (styleName) info.style_name = styleName;
+    const partSize = safeGet<string>(e, 'PartSizeName');
+    if (partSize) info.part_size_name = partSize;
+    const desc = safeGet<string>(e, 'Description');
+    if (desc) info.description = desc;
+  }
 
   // Polyline-specific: global width (used to encode pipe diameter), closed flag
   if (objName.includes('Polyline')) {

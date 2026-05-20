@@ -29,6 +29,14 @@ export interface FlagContext {
    */
   autoDiameterWidthsMissing?: boolean;
   /**
+   * True when "Auto-extract from part feature" is enabled for a `pipe`
+   * preset, the layer returned AECC pipes, but none of them produced a
+   * parseable (diameter, material) tuple from PartSizeName or Description.
+   * Drafters can leave parts un-tagged — when they do, we need the user
+   * to enter diameter manually.
+   */
+  autoPartsMissing?: boolean;
+  /**
    * Names of user-supplied layers (from `item.layer` / `item.extraLayers`)
    * that returned zero entities. When only some of a multi-layer item's
    * layers are empty, we flag them individually without blocking the
@@ -45,10 +53,13 @@ export interface FlagContext {
 export function detectIssues(ctx: FlagContext): MeasurementIssue | null {
   const checks = [
     checkNoEntities,
+    checkStyleFilteredZero,
     checkSiblingLayers,
     checkUnexpectedTypes,
     checkMixedClosed,
     checkAutoDiameterAmbiguous,
+    checkAutoPartsMissing,
+    checkStyleSkippedSome,
     checkShortSegments,
   ];
   for (const check of checks) {
@@ -190,6 +201,57 @@ function checkAutoDiameterAmbiguous(
     message:
       'No polyline widths are set on this layer, so I can\'t infer a pipe diameter. Uncheck "Auto-diameter from polyline width" and enter one manually, or assign global widths in AutoCAD.',
     suggestedOptions: ['Set quantity manually', 'Skip this item'],
+  };
+}
+
+function checkAutoPartsMissing(ctx: FlagContext): MeasurementIssue | null {
+  if (!ctx.autoPartsMissing) return null;
+  return {
+    type: 'ambiguous_diameter',
+    message:
+      'I found pipe-network entities but couldn\'t read a diameter or material from any of them. The drafter may not have tagged the parts. Uncheck "Auto-extract from feature" and enter the diameter manually.',
+    suggestedOptions: ['Set quantity manually', 'Skip this item'],
+  };
+}
+
+function checkStyleFilteredZero(ctx: FlagContext): MeasurementIssue | null {
+  const kw = ctx.item.styleKeyword?.trim();
+  if (!kw) return null;
+  // Selection returned entities but the style filter dropped all of them.
+  // `total_entities` reflects post-filter count; `skipped_by_style` is the
+  // count of entities that were dropped.
+  if (ctx.summary.total_entities > 0) return null;
+  const skipped = ctx.summary.skipped_by_style ?? 0;
+  if (skipped === 0) return null;
+  return {
+    type: 'style_filtered_zero',
+    message: `I found ${skipped} pipe-network entit${skipped === 1 ? 'y' : 'ies'} on "${ctx.item.layer}" but none matched the style keyword "${kw}". Edit the style keyword or clear it to include everything.`,
+    suggestedOptions: [
+      `Clear style filter`,
+      'Set quantity manually',
+      'Skip this item',
+    ],
+    metadata: { skippedByStyle: skipped, styleKeyword: kw },
+  };
+}
+
+function checkStyleSkippedSome(ctx: FlagContext): MeasurementIssue | null {
+  const skipped = ctx.summary.skipped_by_style ?? 0;
+  if (skipped === 0) return null;
+  // Only mention this when the user has an active style filter AND we have
+  // matches. (The all-skipped case is handled by checkStyleFilteredZero.)
+  if (!ctx.item.styleKeyword?.trim()) return null;
+  if (ctx.summary.total_entities === 0) return null;
+  // Don't flag if a tiny number was dropped — that's noise. Only surface
+  // when a meaningful share was filtered out.
+  if (skipped / Math.max(1, skipped + ctx.summary.total_entities) < 0.25) {
+    return null;
+  }
+  return {
+    type: 'style_skipped_some',
+    message: `Heads up — I dropped ${skipped} other pipe-network entit${skipped === 1 ? 'y' : 'ies'} on this layer that didn't match style "${ctx.item.styleKeyword}". If they belong to a different pay item, add one with the matching style keyword.`,
+    suggestedOptions: ['OK, keep this measurement', 'Set quantity manually'],
+    metadata: { skippedByStyle: skipped, styleKeyword: ctx.item.styleKeyword },
   };
 }
 

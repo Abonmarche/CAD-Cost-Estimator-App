@@ -20,8 +20,12 @@ export const PRESETS: PresetCategory[] = [
     label: 'Utilities',
     items: [
       { name: 'Water Main', objectType: 'polyline', measurement: 'linear', defaultLayer: 'W-MAIN', icon: '', accent: 'sky', fields: ['autoDiameter', 'diameter', 'material'] },
-      { name: 'Sanitary Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'SS-PIPE', icon: '', accent: 'amber', fields: ['diameter', 'material'] },
-      { name: 'Storm Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'STM-PIPE', icon: '', accent: 'slate', fields: ['diameter', 'material'] },
+      // Civil 3D pipe networks. Default to the shared P-UTIL layer that
+      // Abonmarche uses for both systems and rely on `defaultStyleKeyword`
+      // to differentiate sanitary vs storm via the entity's Style.Name
+      // (e.g. "P: Sanitary Pipe" vs "P: Storm Pipe").
+      { name: 'Sanitary Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'P-UTIL', icon: '', accent: 'amber', fields: ['autoParts', 'styleKeyword', 'diameter', 'material'], defaultStyleKeyword: 'sanitary' },
+      { name: 'Storm Sewer', objectType: 'pipe', measurement: 'linear', defaultLayer: 'P-UTIL', icon: '', accent: 'slate', fields: ['autoParts', 'styleKeyword', 'diameter', 'material'], defaultStyleKeyword: 'storm' },
       { name: 'Water Service', objectType: 'polyline', measurement: 'linear', defaultLayer: 'W-SERV', icon: '', accent: 'sky', fields: ['diameter', 'material'] },
       { name: 'Water Fitting', objectType: 'block', measurement: 'count', defaultLayer: 'W-FTGS', icon: '', accent: 'sky', fields: ['type', 'size'] },
       { name: 'Sanitary Manhole', objectType: 'block', measurement: 'count', defaultLayer: 'SS-MH', icon: '', accent: 'rose', fields: ['depth', 'diameter'] },

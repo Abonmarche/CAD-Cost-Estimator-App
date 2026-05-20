@@ -56,6 +56,12 @@ export function usePayItems() {
       ...(preset.fields.includes('autoDiameter')
         ? { autoDiameterFromWidth: true }
         : {}),
+      ...(preset.fields.includes('autoParts')
+        ? { autoFromPartFeature: true }
+        : {}),
+      ...(preset.defaultStyleKeyword
+        ? { styleKeyword: preset.defaultStyleKeyword }
+        : {}),
     };
     setItems((prev) => [...prev, newItem]);
   }, []);
@@ -81,7 +87,9 @@ export function usePayItems() {
             patch.material !== undefined ||
             patch.diameter !== undefined ||
             patch.thickness !== undefined ||
-            patch.autoDiameterFromWidth !== undefined
+            patch.autoDiameterFromWidth !== undefined ||
+            patch.autoFromPartFeature !== undefined ||
+            patch.styleKeyword !== undefined
           ) {
             // Only reset if it wasn't already in a terminal state; resolution
             // updates come through this path too, so guard on explicit fields.
@@ -89,7 +97,9 @@ export function usePayItems() {
               patch.layer !== undefined ||
               patch.extraLayers !== undefined ||
               patch.objectType !== undefined ||
-              patch.autoDiameterFromWidth !== undefined;
+              patch.autoDiameterFromWidth !== undefined ||
+              patch.autoFromPartFeature !== undefined ||
+              patch.styleKeyword !== undefined;
             if (resetTriggered && merged.status === 'complete') {
               merged.status = 'pending';
               merged.quantity = null;
