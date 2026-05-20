@@ -17,6 +17,9 @@ import { usePayItems } from './hooks/usePayItems';
 import { useEstimate } from './hooks/useEstimate';
 
 const LIBRARY_COLLAPSED_KEY = 'cea.libraryCollapsed';
+const SHEET_EXPORT_ENABLED_KEY = 'cea.sheetExportEnabled';
+const SHEET_EXPORT_PREFIX_KEY = 'cea.sheetExportPrefix';
+const DEFAULT_SHEET_PREFIX = 'Sheet';
 
 export function App() {
   return (
@@ -39,6 +42,16 @@ function AppMain() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(LIBRARY_COLLAPSED_KEY) === '1';
   });
+  const [sheetExportEnabled, setSheetExportEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SHEET_EXPORT_ENABLED_KEY) === '1';
+  });
+  const [sheetExportPrefix, setSheetExportPrefix] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_SHEET_PREFIX;
+    return (
+      window.localStorage.getItem(SHEET_EXPORT_PREFIX_KEY) ?? DEFAULT_SHEET_PREFIX
+    );
+  });
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -46,6 +59,15 @@ function AppMain() {
       libraryCollapsed ? '1' : '0',
     );
   }, [libraryCollapsed]);
+  useEffect(() => {
+    window.localStorage.setItem(
+      SHEET_EXPORT_ENABLED_KEY,
+      sheetExportEnabled ? '1' : '0',
+    );
+  }, [sheetExportEnabled]);
+  useEffect(() => {
+    window.localStorage.setItem(SHEET_EXPORT_PREFIX_KEY, sheetExportPrefix);
+  }, [sheetExportPrefix]);
 
   const status = useAutocadStatus();
   const mcpStatus = useCostEstDbStatus();
@@ -98,6 +120,10 @@ function AppMain() {
       items,
       totalCost: counts.total,
       exportDate: new Date().toISOString(),
+      sheetExport: {
+        enabled: sheetExportEnabled,
+        prefix: sheetExportPrefix.trim() || DEFAULT_SHEET_PREFIX,
+      },
     };
     const res = await exportEstimate(payload);
     if (res.success) {
@@ -136,6 +162,10 @@ function AppMain() {
                 ready: counts.complete,
                 estimate: counts.total,
               }}
+              sheetExportEnabled={sheetExportEnabled}
+              onSheetExportEnabledChange={setSheetExportEnabled}
+              sheetExportPrefix={sheetExportPrefix}
+              onSheetExportPrefixChange={setSheetExportPrefix}
             />
 
             {items.length === 0 ? (

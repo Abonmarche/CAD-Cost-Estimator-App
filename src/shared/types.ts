@@ -301,6 +301,18 @@ export interface EstimateExport {
   items: PayItem[];
   totalCost: number;
   exportDate: string; // ISO string
+  /**
+   * Optional per-sheet breakdown (Michigan workflow). When `enabled: true`,
+   * the exporter scans the drawing for layers matching `^<prefix>\d+$`,
+   * reads the closed polyline on each, and writes one extra worksheet per
+   * sheet — plus an "Unassigned" worksheet for entities outside every
+   * sheet polygon. Indiana projects omit this field entirely.
+   */
+  sheetExport?: {
+    enabled: boolean;
+    /** Layer-name prefix (case-insensitive). Default `'Sheet'`. */
+    prefix: string;
+  };
 }
 
 // ---------- IPC channel payloads ----------

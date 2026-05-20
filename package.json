@@ -1,6 +1,6 @@
 {
   "name": "cost-estimator",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Abonmarche Cost Estimator - reads quantities from AutoCAD and prices them against historical bid data via CostEstDB",
   "main": "out/main/index.js",
   "author": {
@@ -28,6 +28,7 @@
     "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.16.0",
+    "polygon-clipping": "^0.15.7",
     "react-markdown": "^9.1.0",
     "remark-gfm": "^4.0.1",
     "winax": "^3.4.2",
