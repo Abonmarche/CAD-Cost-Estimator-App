@@ -1,0 +1,139 @@
+name: Claude Review
+
+# Advisory second-reviewer. Fires on every non-draft PR (human and bot),
+# reads the diff, and posts ONE assessment comment. This is COMMENT-ONLY
+# and ALWAYS exits 0 — it is NOT a required check, and it never gates,
+# blocks, or merges anything. A human always merges this repo.
+#
+# Stack: Electron desktop app (TypeScript + winax) + 2 Azure Functions
+#   Build: electron-vite, typecheck via tsc, CI runs on windows-latest
+#   Functions: feedback-api + llm-proxy (each with their own package.json)
+#   Infra: Bicep (infra/)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, ready_for_review, synchronize, reopened]
+
+permissions:
+  id-token: write        # mints the Claude App installation token via OIDC
+  contents: read
+  pull-requests: write   # post the assessment comment
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  claude-review:
+    name: claude-review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # NO github_token — OIDC mints the App installation token.
+          # allowed_bots keeps the review running for bot PRs (autofix).
+          allowed_bots: 'claude[bot],claude-autofix[bot]'
+          claude_args: |
+            --max-turns 25
+            --model claude-sonnet-4-6
+            --effort high
+            --allowedTools "Bash(gh:*),Read,Grep,Glob"
+          prompt: |
+            You are the advisory review agent for the Abonmarche Cost Estimator
+            (Electron desktop app + 2 Azure Functions). Your job is to read this
+            PR, assess its quality, and post ONE comment. You are ADVISORY ONLY:
+            you never approve, never merge, and this workflow never fails. A human
+            always decides whether to merge.
+
+            PR:     #${{ github.event.pull_request.number }}
+            Title:  ${{ github.event.pull_request.title }}
+            Author: ${{ github.event.pull_request.user.login }}
+
+            ============ STEP 1 — READ ============
+            Run:
+              gh pr diff ${{ github.event.pull_request.number }}
+              gh pr view ${{ github.event.pull_request.number }} --json title,body,labels,files
+
+            Read CLAUDE.md and cost-estimator-spec.md for architecture context.
+            Read any touched source files to understand intent and local patterns.
+
+            ============ STEP 2 — ASSESS (cite file:line for findings) ============
+
+            1. Correctness
+               - Does it do what it claims? Logic, async/await, error handling, types.
+               - Electron: check IPC surface (ipc-handlers.ts, preload/index.ts) for
+                 type safety and contextBridge hygiene.
+               - Renderer: React hook rules, state mutation, missing deps in useEffect.
+               - Agent SDK (agent.ts): correct tool call handling, stream lifecycle.
+               - Azure Functions: correct HTTP bindings, error propagation, no secret
+                 leakage in responses.
+
+            2. Tests
+               - A behavior change in a testable unit without a test is a finding.
+               - Check functions/feedback-api/vitest.config.ts for test conventions.
+               - Note if the change is untestable at this layer (e.g. AutoCAD COM
+                 or Electron main-process startup) — that is NOT a finding.
+
+            3. Sensitive-path awareness
+               Note (but do NOT fail for) changes to any of these paths:
+                 - .github/workflows/**
+                 - src/main/auth/**
+                 - functions/feedback-api/src/**
+                 - functions/llm-proxy/src/**
+                 - infra/**
+                 - package.json
+                 - package-lock.json
+                 - functions/feedback-api/package.json
+                 - functions/llm-proxy/package.json
+                 - src/shared/types.ts
+                 - electron-builder.yml
+                 - electron.vite.config.ts
+               A clean change to a sensitive path is NOT a quality problem —
+               CODEOWNERS already routes these to @Abonmarche/admins for review.
+
+            4. Scope
+               Only the files the PR claims to touch should be changed. Flag
+               unrelated edits (cleanup, reformatting unrelated code, etc.).
+
+            5. Safe-to-merge opinion
+               Weigh correctness, tests, and scope together. Give a concise
+               yes/no/maybe-with-caveats verdict.
+
+            ============ STEP 3 — POST ONE COMMENT ============
+            Use:
+              gh pr comment ${{ github.event.pull_request.number }} --body "<body>"
+
+            Comment format (Markdown):
+
+              ## Claude review (advisory)
+
+              **Correctness:** <one or two sentences>
+              **Tests:** <observation>
+              **Sensitive paths touched:** <list, or "none">
+              **Scope:** <clean / note any surprises>
+              **Safe to merge?** <Yes / No — reason / Yes with caveats — list them>
+
+              <Numbered findings with file:line, if any. Omit section if none.>
+
+              ---
+              *This is an advisory comment. A human always merges this repo.*
+
+            Always post this comment — for human and bot PRs alike.
+            After posting, you are done. Do NOT write any files. Do NOT add or
+            remove labels. Do NOT enable or disable auto-merge. Do NOT call
+            gh pr merge under any circumstance.
