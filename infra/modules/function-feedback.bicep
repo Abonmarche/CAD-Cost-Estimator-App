@@ -49,8 +49,41 @@ param apiAppId string
 @description('Key Vault name. Surfaced to the handler via KEY_VAULT_NAME app setting so lib/keyvault.ts can pull github-app-private-key via MI.')
 param keyVaultName string
 
+@description('GitHub App ID for the feedback bot. Non-secret. Passed so redeploys PRESERVE it. Empty = omit (bootstrap before the App exists).')
+param githubAppId string = ''
+@description('GitHub App installation ID for the feedback bot. Non-secret.')
+param githubInstallationId string = ''
+@description('GitHub org/owner the feedback issues are filed under.')
+param githubOwner string = ''
+@description('GitHub repo the feedback issues are filed under.')
+param githubRepo string = ''
+@description('Key Vault URL the handler reads the GitHub App private key from (KEY_VAULT_URL). Non-secret.')
+param keyVaultUrl string = 'https://kv-cost-estimator-fb.vault.azure.net/'
+@description('Key Vault secret name holding the GitHub App private key (KEY_VAULT_SECRET_NAME). Non-secret name; the secret VALUE stays in Key Vault.')
+param keyVaultSecretName string = 'github-app-private-key'
+
 @description('CORS allowed origins. For the Electron desktop client this is not security-relevant (the main process makes the HTTP call, not a browser), but Function Apps require a value. Pass a safe non-wildcard placeholder if no browser callers exist.')
 param corsAllowedOrigins array
+
+// readConfig() in functions/feedback-api/src/functions/submit-feedback.ts requires ALL SIX
+// of these settings and returns 500 'server_misconfigured' if ANY is missing:
+//   GITHUB_APP_ID, GITHUB_INSTALLATION_ID, GITHUB_OWNER, GITHUB_REPO,
+//   KEY_VAULT_URL, KEY_VAULT_SECRET_NAME
+// They are set OUT OF BAND by scripts/setup-feedback-github-app.mjs after the App exists.
+// Because siteConfig.appSettings is a FULL REPLACE, a plain redeploy would drop them and the
+// endpoint 500s. Parameterizing them (all non-secret IDs/URLs/names; the private key VALUE
+// stays in Key Vault, referenced by KEY_VAULT_SECRET_NAME) makes redeploys PRESERVE them.
+// Empty githubAppId => omit the block entirely (bootstrap before the App exists).
+// NOTE: these are plain string settings — NOT @Microsoft.KeyVault(...) references — because
+// that is exactly what readConfig reads from process.env.
+var githubFeedbackSettings = empty(githubAppId) ? [] : [
+  { name: 'GITHUB_APP_ID', value: githubAppId }
+  { name: 'GITHUB_INSTALLATION_ID', value: githubInstallationId }
+  { name: 'GITHUB_OWNER', value: githubOwner }
+  { name: 'GITHUB_REPO', value: githubRepo }
+  { name: 'KEY_VAULT_URL', value: keyVaultUrl }
+  { name: 'KEY_VAULT_SECRET_NAME', value: keyVaultSecretName }
+]
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: planName
@@ -99,7 +132,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         allowedOrigins: corsAllowedOrigins
         supportCredentials: false
       }
-      appSettings: [
+      appSettings: concat([
         {
           name: 'AzureWebJobsStorage__accountName'
           value: storageAccountName
@@ -120,7 +153,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'KEY_VAULT_NAME'
           value: keyVaultName
         }
-      ]
+      ], githubFeedbackSettings)
     }
   }
 }

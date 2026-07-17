@@ -89,6 +89,19 @@ param feedbackApiAppId string
 @description('Feedback: CORS allowed origins (comma-separated string). Not security-relevant for the Electron client (main process makes the call), but Function Apps require a value.')
 param feedbackCorsAllowedOrigins string = 'http://localhost'
 
+// Feedback GitHub-App identity. These four are otherwise set OUT OF BAND by
+// scripts/setup-feedback-github-app.mjs after deploy; passing them here (with the
+// app's real non-secret IDs as defaults) makes redeploys PRESERVE them instead of
+// wiping the appSettings block. The private key stays in Key Vault.
+@description('Feedback: GitHub App ID (non-secret).')
+param githubAppId string = '3758135'
+@description('Feedback: GitHub App installation ID (non-secret).')
+param githubInstallationId string = '133469931'
+@description('Feedback: GitHub org/owner issues are filed under.')
+param githubOwner string = 'Abonmarche'
+@description('Feedback: GitHub repo issues are filed under.')
+param githubRepo string = 'CAD-Cost-Estimator-App'
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 var feedbackCorsOriginsArray = split(feedbackCorsAllowedOrigins, ',')
@@ -191,6 +204,10 @@ module feedbackFunction 'modules/function-feedback.bicep' = {
     apiAppId: feedbackApiAppId
     keyVaultName: feedbackKeyvault.outputs.keyVaultName
     corsAllowedOrigins: feedbackCorsOriginsArray
+    githubAppId: githubAppId
+    githubInstallationId: githubInstallationId
+    githubOwner: githubOwner
+    githubRepo: githubRepo
   }
 }
 
