@@ -1,0 +1,68 @@
+name: Notify Submitter on Fix
+
+# Emails the original feedback submitter when a PR that closes their
+# user-reported issue is merged to main. Closes the in-app feedback loop:
+# in-app "Report a bug" / "Request enhancement" -> GitHub issue (user-reported)
+# -> fix PR (Closes #N) -> merge -> this workflow emails the submitter and CC's
+# the team.
+#
+# Works for BOTH bot-authored auto-fix PRs and human-authored PRs, as long as
+# the PR closes the issue via a "Closes #N" / "Fixes #N" link.
+#
+# The "Run workflow" button (workflow_dispatch) runs a TEST: it sends one
+# generic email to the test recipient only (no CC, no issue lookup) to prove
+# SMTP delivery works end to end.
+#
+# PREREQUISITES (one-time, outside this repo's code):
+#   - Repo secrets: MAIL_USERNAME (sending mailbox, e.g.
+#     abonmarchescripting@abonmarche.com) and MAIL_PASSWORD (its password or app
+#     password). Optional repo variables MAIL_FROM_NAME and NOTIFY_CC.
+#   - The sending mailbox must have "Authenticated SMTP" enabled AND the M365
+#     tenant must allow SMTP AUTH for it (Security Defaults / Conditional Access
+#     not blocking legacy auth; app password if the account enforces MFA).
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_recipient:
+        description: 'TEST: send one generic email to this address to prove SMTP works.'
+        required: false
+        default: 'ggarcia@abonmarche.com'
+
+permissions:
+  contents: read
+  issues: write          # add the silent `submitter-notified` idempotency label
+  pull-requests: read    # read closingIssuesReferences
+
+jobs:
+  notify:
+    # Manual dispatch (test) always runs; PR event only on a real merge.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install nodemailer (ad hoc - not added to package.json)
+        run: npm install --no-save nodemailer@6.9
+
+      - name: Notify submitter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+          NOTIFY_CC: ${{ vars.NOTIFY_CC }}
+          TEST_MODE: ${{ github.event_name == 'workflow_dispatch' }}
+          TEST_RECIPIENT: ${{ github.event.inputs.test_recipient }}
+        run: node .github/scripts/notify-submitter.mjs
