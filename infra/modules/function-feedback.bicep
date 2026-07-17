@@ -49,8 +49,29 @@ param apiAppId string
 @description('Key Vault name. Surfaced to the handler via KEY_VAULT_NAME app setting so lib/keyvault.ts can pull github-app-private-key via MI.')
 param keyVaultName string
 
+@description('GitHub App ID for the feedback bot. Non-secret. Passed so redeploys PRESERVE it. Empty = omit (bootstrap before the App exists).')
+param githubAppId string = ''
+@description('GitHub App installation ID for the feedback bot. Non-secret.')
+param githubInstallationId string = ''
+@description('GitHub org/owner the feedback issues are filed under.')
+param githubOwner string = ''
+@description('GitHub repo the feedback issues are filed under.')
+param githubRepo string = ''
+
 @description('CORS allowed origins. For the Electron desktop client this is not security-relevant (the main process makes the HTTP call, not a browser), but Function Apps require a value. Pass a safe non-wildcard placeholder if no browser callers exist.')
 param corsAllowedOrigins array
+
+// The four GITHUB_* settings are set OUT OF BAND by scripts/setup-feedback-github-app.mjs
+// after the App exists. Because siteConfig.appSettings is a FULL REPLACE, a plain redeploy
+// would drop them and the endpoint returns 500 'server_misconfigured'. Parameterizing them
+// (non-secret IDs; the private key stays in Key Vault) makes redeploys PRESERVE them.
+// Empty githubAppId => omit the block entirely (bootstrap before the App exists).
+var githubFeedbackSettings = empty(githubAppId) ? [] : [
+  { name: 'GITHUB_APP_ID', value: githubAppId }
+  { name: 'GITHUB_INSTALLATION_ID', value: githubInstallationId }
+  { name: 'GITHUB_OWNER', value: githubOwner }
+  { name: 'GITHUB_REPO', value: githubRepo }
+]
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: planName
@@ -99,7 +120,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         allowedOrigins: corsAllowedOrigins
         supportCredentials: false
       }
-      appSettings: [
+      appSettings: concat([
         {
           name: 'AzureWebJobsStorage__accountName'
           value: storageAccountName
@@ -120,7 +141,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'KEY_VAULT_NAME'
           value: keyVaultName
         }
-      ]
+      ], githubFeedbackSettings)
     }
   }
 }
