@@ -144,15 +144,14 @@ export async function* resolvePayItem(
           'mcp__autocad__get_entities_on_layer',
           'mcp__autocad__get_entity_details',
         ],
-        // Latest dateless Sonnet ID per Anthropic's docs. The Key Vault
-        // key has been verified (via scripts/test-agent-sdk.mjs) to have
-        // access to claude-sonnet-4-6 against api.anthropic.com. The
+        // Latest dateless Sonnet ID per Anthropic's docs; fallback is the
+        // previous Sonnet generation. Verify key access with
+        // scripts/test-agent-sdk.mjs (defaults to this model). The
         // "may not have access" errors we chased through v0.4.2-v0.4.5
         // were all downstream symptoms of the proxy's /api route prefix
-        // returning 404 before the API was ever reached. Once host.json
-        // drops that prefix and the function redeploys, 4-6 works.
-        model: 'claude-sonnet-4-6',
-        fallbackModel: 'claude-sonnet-4-5',
+        // returning 404 before the API was ever reached, not model access.
+        model: 'claude-sonnet-5',
+        fallbackModel: 'claude-sonnet-4-6',
         maxTurns: 10,
         // `debug: true` makes the CLI write verbose diagnostics to stderr.
         // Cheap to enable — these only surface when something goes wrong.

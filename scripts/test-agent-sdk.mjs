@@ -40,7 +40,7 @@ function arg(name, fallback) {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
 }
 
-const MODEL = arg('model', 'claude-sonnet-4-5');
+const MODEL = arg('model', 'claude-sonnet-5');
 const PROMPT = arg('prompt', 'Say "hello" in one word and stop.');
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
