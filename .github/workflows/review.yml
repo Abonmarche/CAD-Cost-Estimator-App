@@ -50,7 +50,7 @@ jobs:
           allowed_bots: 'claude[bot],claude-autofix[bot]'
           claude_args: |
             --max-turns 25
-            --model claude-sonnet-5
+            --model claude-sonnet-5-5
             --effort high
             --allowedTools "Bash(gh:*),Read,Grep,Glob"
           prompt: |
