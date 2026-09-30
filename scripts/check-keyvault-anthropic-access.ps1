@@ -41,9 +41,11 @@
 param(
   [string] $VaultName  = 'kv-cost-estimator-llm',
   [string] $SecretName = 'anthropic-api-key',
+  [string] $TargetModel   = 'claude-sonnet-5-5',
+  [string] $PreviousModel = 'claude-sonnet-5',
   [string[]] $Models = @(
+    'claude-sonnet-5-5',
     'claude-sonnet-5',
-    'claude-sonnet-4-6',
     'claude-opus-5-5',
     'claude-haiku-4-5'
   ),
@@ -54,8 +56,8 @@ $ErrorActionPreference = 'Stop'
 $ApiBase   = 'https://api.anthropic.com'
 $ApiVer    = '2023-06-01'
 
-# Combine + de-dupe
-$AllModels = ($Models + $ExtraModels) | Where-Object { $_ } | Select-Object -Unique
+# Combine + de-dupe (the target and previous models are always probed)
+$AllModels = (@($TargetModel, $PreviousModel) + $Models + $ExtraModels) | Where-Object { $_ } | Select-Object -Unique
 
 function Write-Section($title) {
   Write-Host ''
@@ -219,21 +221,21 @@ foreach ($model in $AllModels) {
 }
 
 Write-Host ''
-$hasNew = $results['claude-sonnet-5'] -and $results['claude-sonnet-5'].ok
-$hasPrev = $results['claude-sonnet-4-6'] -and $results['claude-sonnet-4-6'].ok
+$hasTarget = $results[$TargetModel] -and $results[$TargetModel].ok
+$hasPrevious = $results[$PreviousModel] -and $results[$PreviousModel].ok
 $anyOk = ($results.Values | Where-Object { $_.ok }).Count -gt 0
 
-if ($hasNew) {
-  Write-Host 'Verdict: the Key Vault key DOES have access to claude-sonnet-5.' -ForegroundColor Green
+if ($hasTarget) {
+  Write-Host "Verdict: the Key Vault key DOES have access to $TargetModel." -ForegroundColor Green
   Write-Host '         The Electron app failure must be on our side (proxy,' -ForegroundColor Green
   Write-Host '         Agent SDK plumbing, or how the model name reaches the API).' -ForegroundColor Green
-} elseif ($hasPrev) {
-  Write-Host 'Verdict: this key works against claude-sonnet-4-6 but NOT claude-sonnet-5.' -ForegroundColor Yellow
-  Write-Host '         Your account does not have Sonnet 5 rolled out yet. Either:' -ForegroundColor Yellow
+} elseif ($hasPrevious) {
+  Write-Host "Verdict: this key works against $PreviousModel but NOT $TargetModel." -ForegroundColor Yellow
+  Write-Host '         Your account does not have Sonnet 5.5 rolled out yet. Either:' -ForegroundColor Yellow
   Write-Host '         (a) Check console.anthropic.com for model access requests' -ForegroundColor Yellow
-  Write-Host '         (b) Stay on claude-sonnet-4-6 in the app' -ForegroundColor Yellow
+  Write-Host "         (b) Stay on $PreviousModel in the app" -ForegroundColor Yellow
 } elseif ($anyOk) {
-  Write-Host 'Verdict: key works for SOME models but neither Sonnet 5 nor 4-6.' -ForegroundColor Yellow
+  Write-Host 'Verdict: key works for SOME models but neither Sonnet 5.5 nor Sonnet 5.' -ForegroundColor Yellow
   Write-Host '         Switch the app to whichever of the above PASS-ed.' -ForegroundColor Yellow
 } else {
   Write-Host 'Verdict: this key cannot reach ANY model. Key may be invalid,' -ForegroundColor Red

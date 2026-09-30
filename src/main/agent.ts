@@ -144,14 +144,14 @@ export async function* resolvePayItem(
           'mcp__autocad__get_entities_on_layer',
           'mcp__autocad__get_entity_details',
         ],
-        // Latest dateless Sonnet ID per Anthropic's docs; fallback is the
-        // previous Sonnet generation. Verify key access with
+        // Latest dateless Sonnet ID (Claude Sonnet 5.5); fallback is the
+        // previous Sonnet generation (Claude Sonnet 5). Verify key access with
         // scripts/test-agent-sdk.mjs (defaults to this model). The
         // "may not have access" errors we chased through v0.4.2-v0.4.5
         // were all downstream symptoms of the proxy's /api route prefix
         // returning 404 before the API was ever reached, not model access.
-        model: 'claude-sonnet-5',
-        fallbackModel: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5-5',
+        fallbackModel: 'claude-sonnet-5',
         maxTurns: 10,
         // `debug: true` makes the CLI write verbose diagnostics to stderr.
         // Cheap to enable — these only surface when something goes wrong.
