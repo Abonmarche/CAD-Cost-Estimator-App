@@ -3,13 +3,13 @@
 Anthropic API key diagnostic.
 
 What this proves / disproves:
-  - Does THIS API key have access to claude-sonnet-5?
+  - Does THIS API key have access to claude-sonnet-5-5?
   - Which models does it have access to?
   - Is the failure in the key (account-level) or in our Electron app's plumbing
     (proxy / SDK / Key Vault) ?
 
 It calls api.anthropic.com directly. No proxy, no MSAL, no Electron, no SDK.
-If Sonnet 5 works here but fails in the app, the bug is on our side.
+If Sonnet 5.5 works here but fails in the app, the bug is on our side.
 
 Usage (PowerShell):
   $env:ANTHROPIC_API_KEY = "sk-ant-..."
@@ -34,12 +34,17 @@ import urllib.request
 API_BASE = "https://api.anthropic.com"
 API_VERSION = "2023-06-01"
 
-# Models we want to probe, in priority order. claude-sonnet-5 is what our
+# The model our Electron app currently requests, and the previous Sonnet
+# generation (the app's fallbackModel).
+TARGET_MODEL = "claude-sonnet-5-5"
+PREVIOUS_MODEL = "claude-sonnet-5"
+
+# Models we want to probe, in priority order. TARGET_MODEL is what our
 # Electron app currently requests; the others are sanity checks so we can
-# see what the key DOES work with if Sonnet 5 is rejected.
+# see what the key DOES work with if Sonnet 5.5 is rejected.
 MODELS_TO_TRY = [
-    "claude-sonnet-5",
-    "claude-sonnet-4-6",
+    TARGET_MODEL,
+    PREVIOUS_MODEL,
     "claude-opus-5-5",
     "claude-haiku-4-5",
 ]
@@ -94,7 +99,7 @@ def list_models(api_key: str) -> list[str]:
     ids = [m.get("id", "?") for m in models]
     print(f"  Account has {len(ids)} models visible.")
     for mid in ids:
-        marker = "  <- target" if mid == "claude-sonnet-5" else ""
+        marker = "  <- target" if mid == TARGET_MODEL else ""
         print(f"    {mid}{marker}")
     return ids
 
@@ -166,13 +171,13 @@ def main() -> int:
         in_listing = "(in /v1/models)" if model in visible else "(NOT in /v1/models)"
         print(f"  {sym}  {model:36s} {in_listing}")
 
-    if results.get("claude-sonnet-5"):
-        print("\nVerdict: this key DOES have access to claude-sonnet-5.")
+    if results.get(TARGET_MODEL):
+        print(f"\nVerdict: this key DOES have access to {TARGET_MODEL}.")
         print("If the Electron app still fails, the bug is on our side")
         print("(proxy, Key Vault key, or SDK model passing) — not the key.")
     elif any(results.values()):
         print(
-            "\nVerdict: this key does NOT have access to claude-sonnet-5,"
+            f"\nVerdict: this key does NOT have access to {TARGET_MODEL},"
             "\nbut other models work. Either upgrade account access at "
             "console.anthropic.com or switch the app to a model this key can use."
         )
@@ -182,7 +187,7 @@ def main() -> int:
             "\ninvalid, revoked, or out of credit. Check console.anthropic.com."
         )
 
-    return 0 if results.get("claude-sonnet-5") else 1
+    return 0 if results.get(TARGET_MODEL) else 1
 
 
 if __name__ == "__main__":
