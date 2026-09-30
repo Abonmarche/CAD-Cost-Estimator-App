@@ -49,7 +49,7 @@ jobs:
           # allowed_bots keeps the review running for bot PRs (autofix).
           allowed_bots: 'claude[bot],claude-autofix[bot]'
           claude_args: |
-            --max-turns 25
+            --max-turns 40
             --model claude-sonnet-5-5
             --effort high
             --allowedTools "Bash(gh:*),Read,Grep,Glob"
