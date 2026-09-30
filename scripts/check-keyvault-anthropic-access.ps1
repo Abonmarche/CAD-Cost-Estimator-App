@@ -34,7 +34,7 @@
   pwsh ./scripts/check-keyvault-anthropic-access.ps1
 
   # Test additional model IDs beyond the defaults:
-  pwsh ./scripts/check-keyvault-anthropic-access.ps1 -ExtraModels claude-opus-4-1, claude-sonnet-4-0
+  pwsh ./scripts/check-keyvault-anthropic-access.ps1 -ExtraModels claude-opus-5, claude-sonnet-4-5
 #>
 
 [CmdletBinding()]
@@ -42,11 +42,10 @@ param(
   [string] $VaultName  = 'kv-cost-estimator-llm',
   [string] $SecretName = 'anthropic-api-key',
   [string[]] $Models = @(
+    'claude-sonnet-5',
     'claude-sonnet-4-6',
-    'claude-sonnet-4-5',
-    'claude-opus-4-7',
-    'claude-opus-4-6',
-    'claude-haiku-4-5-20251001'
+    'claude-opus-5-5',
+    'claude-haiku-4-5'
   ),
   [string[]] $ExtraModels = @()
 )
@@ -220,21 +219,21 @@ foreach ($model in $AllModels) {
 }
 
 Write-Host ''
-$has46 = $results['claude-sonnet-4-6'] -and $results['claude-sonnet-4-6'].ok
-$has45 = $results['claude-sonnet-4-5'] -and $results['claude-sonnet-4-5'].ok
+$hasNew = $results['claude-sonnet-5'] -and $results['claude-sonnet-5'].ok
+$hasPrev = $results['claude-sonnet-4-6'] -and $results['claude-sonnet-4-6'].ok
 $anyOk = ($results.Values | Where-Object { $_.ok }).Count -gt 0
 
-if ($has46) {
-  Write-Host 'Verdict: the Key Vault key DOES have access to claude-sonnet-4-6.' -ForegroundColor Green
+if ($hasNew) {
+  Write-Host 'Verdict: the Key Vault key DOES have access to claude-sonnet-5.' -ForegroundColor Green
   Write-Host '         The Electron app failure must be on our side (proxy,' -ForegroundColor Green
   Write-Host '         Agent SDK plumbing, or how the model name reaches the API).' -ForegroundColor Green
-} elseif ($has45) {
-  Write-Host 'Verdict: this key works against claude-sonnet-4-5 but NOT 4-6.' -ForegroundColor Yellow
-  Write-Host '         Your account does not have 4-6 rolled out yet. Either:' -ForegroundColor Yellow
+} elseif ($hasPrev) {
+  Write-Host 'Verdict: this key works against claude-sonnet-4-6 but NOT claude-sonnet-5.' -ForegroundColor Yellow
+  Write-Host '         Your account does not have Sonnet 5 rolled out yet. Either:' -ForegroundColor Yellow
   Write-Host '         (a) Check console.anthropic.com for model access requests' -ForegroundColor Yellow
-  Write-Host '         (b) Stay on claude-sonnet-4-5 in the app' -ForegroundColor Yellow
+  Write-Host '         (b) Stay on claude-sonnet-4-6 in the app' -ForegroundColor Yellow
 } elseif ($anyOk) {
-  Write-Host 'Verdict: key works for SOME models but neither Sonnet 4-5 nor 4-6.' -ForegroundColor Yellow
+  Write-Host 'Verdict: key works for SOME models but neither Sonnet 5 nor 4-6.' -ForegroundColor Yellow
   Write-Host '         Switch the app to whichever of the above PASS-ed.' -ForegroundColor Yellow
 } else {
   Write-Host 'Verdict: this key cannot reach ANY model. Key may be invalid,' -ForegroundColor Red
